@@ -1834,7 +1834,7 @@ static int mmc_suspend(struct mmc_host *host)
 	 */
 	mmc_disable_clk_scaling(host);
 
-	err = mmc_cache_ctrl(host, 0);
+	err = mmc_flush_cache(host->card);
 	if (err)
 		goto out;
 
