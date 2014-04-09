@@ -195,6 +195,7 @@ struct mdss_intf_recovery {
  *				- MIPI_CMD_PANEL: switch to command mode
  * @MDSS_EVENT_DSI_RESET_WRITE_PTR: Reset the write pointer coordinates on
  *				the panel.
+ * @MDSS_EVENT_ENABLE_HBM:	Enable "High Brightness Mode" feature on panel
  */
 enum mdss_intf_events {
 	MDSS_EVENT_RESET = 1,
@@ -222,6 +223,7 @@ enum mdss_intf_events {
 	MDSS_EVENT_DSI_RECONFIG_CMD,
 	MDSS_EVENT_DSI_RESET_WRITE_PTR,
 	MDSS_EVENT_PANEL_UPDATE_DSI_TIMING,
+	MDSS_EVENT_ENABLE_HBM,
 };
 
 struct lcd_panel_info {
@@ -459,6 +461,9 @@ struct mdss_panel_info {
 
 	/* debugfs structure for the panel */
 	struct mdss_panel_debugfs_info *debugfs_info;
+
+	bool hbm_feature_enabled;
+	bool hbm_state;
 };
 
 struct mdss_panel_data {
