@@ -172,6 +172,8 @@ struct cs_cpu_dbs_info_s {
 
 struct ex_cpu_dbs_info_s {
 	struct cpu_dbs_common_info cdbs;
+	bool input_event_boost;
+	unsigned long input_event_boost_expired;
 	unsigned int enable:1;
 };
 
