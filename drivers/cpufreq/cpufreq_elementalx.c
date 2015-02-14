@@ -23,7 +23,7 @@
 #define DEF_INPUT_EVENT_MIN_FREQ		(1267200)
 #define DEF_INPUT_EVENT_TIMEOUT			(500)
 #define DEF_GBOOST_MIN_FREQ			(1728000)
-#define DEF_MAX_SCREEN_OFF_FREQ			(1728000)
+#define DEF_MAX_SCREEN_OFF_FREQ			(2265000)
 #define MIN_SAMPLING_RATE			(10000)
 #define FREQ_NEED_BURST(x)			(x < 800000 ? 1 : 0)
 #define MAX(x,y)				(x > y ? x : y)
