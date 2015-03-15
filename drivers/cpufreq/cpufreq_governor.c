@@ -408,6 +408,7 @@ int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			cs_dbs_info->enable = 1;
 			cs_dbs_info->requested_freq = policy->cur;
 		} else if (dbs_data->cdata->governor == GOV_ELEMENTALX) {
+			ex_dbs_info->down_floor = 0;
 			ex_dbs_info->enable = 1;
 		} else {
 			od_dbs_info->rate_mult = 1;
