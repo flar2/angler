@@ -172,8 +172,7 @@ struct cs_cpu_dbs_info_s {
 
 struct ex_cpu_dbs_info_s {
 	struct cpu_dbs_common_info cdbs;
-	bool input_event_boost;
-	unsigned long input_event_boost_expired;
+	unsigned int down_floor;
 	unsigned int enable:1;
 };
 
@@ -203,9 +202,9 @@ struct ex_dbs_tuners {
 	unsigned int down_differential;
 	unsigned int gboost;
 	unsigned int gboost_min_freq;
-	unsigned int input_event_timeout;
-	unsigned int input_min_freq;
+	unsigned int active_floor_freq;
 	unsigned int max_screen_off_freq;
+	unsigned int sampling_down_factor;
 };
 
 /* Common Governor data across policies */
