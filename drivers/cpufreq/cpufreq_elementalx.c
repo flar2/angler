@@ -20,12 +20,12 @@
 #define DEF_FREQUENCY_UP_THRESHOLD		(90)
 #define DEF_FREQUENCY_DOWN_DIFFERENTIAL		(20)
 #define DEF_ACTIVE_FLOOR_FREQ			(960000)
-#define DEF_GBOOST_MIN_FREQ			(1728000)
+#define DEF_GBOOST_MIN_FREQ			(1574400)
 #define DEF_MAX_SCREEN_OFF_FREQ			(2265000)
 #define MIN_SAMPLING_RATE			(10000)
 #define DEF_SAMPLING_DOWN_FACTOR		(8)
 #define MAX_SAMPLING_DOWN_FACTOR		(20)
-#define FREQ_NEED_BURST(x)			(x < 800000 ? 1 : 0)
+#define FREQ_NEED_BURST(x)			(x < 1000000 ? 1 : 0)
 #define MAX(x,y)				(x > y ? x : y)
 #define MIN(x,y)				(x < y ? x : y)
 
@@ -48,17 +48,17 @@ static struct ex_governor_data {
 	.suspended = false
 };
 
-static inline unsigned int ex_freq_increase(struct cpufreq_policy *p, unsigned int freq, int cpu)
+static inline unsigned int ex_freq_increase(struct cpufreq_policy *p, unsigned int freq)
 {
 	if (freq > p->max) {
 		return p->max;
 	} 
 	
-	else if (ex_data.g_count > 30) {
+	else if (!ex_data.suspended) {
 		freq = MAX(freq, ex_data.active_floor_freq);
 	} 
 
-	else if (ex_data.suspended) {
+	else {
 		freq = MIN(freq, ex_data.max_screen_off_freq);
 	}
 
@@ -72,11 +72,12 @@ static void ex_check_cpu(int cpu, unsigned int load)
 	struct dbs_data *dbs_data = policy->governor_data;
 	struct ex_dbs_tuners *ex_tuners = dbs_data->tuners;
 	unsigned int max_load_freq = 0, freq_next = 0;
-	unsigned int j, avg_load, cur_freq, target_freq = 0;
+	unsigned int j, avg_load, cur_freq, max_freq, target_freq = 0;
 
 	cpufreq_notify_utilization(policy, load);
 
 	cur_freq = policy->cur;
+	max_freq = policy->max;
 
 	for_each_cpu(j, policy->cpus) {
 		if (load > max_load_freq)
@@ -85,23 +86,23 @@ static void ex_check_cpu(int cpu, unsigned int load)
 	avg_load = (ex_data.prev_load + load) >> 1;
 
 	if (ex_tuners->gboost) {
-		if (ex_data.g_count < 200 && graphics_boost < 4)
+		if (ex_data.g_count < 500 && graphics_boost < 3)
 			++ex_data.g_count;
 		else if (ex_data.g_count > 1)
 			--ex_data.g_count;
 	}
 
 	//gboost mode
-	if (ex_tuners->gboost && ex_data.g_count > 90) {
+	if (ex_tuners->gboost && ex_data.g_count > 300) {
 				
 		if (avg_load > 40 + (graphics_boost * 10)) {
-			freq_next = policy->max;
+			freq_next = max_freq;
 		} else {
-			freq_next = policy->max * avg_load / 100;
+			freq_next = max_freq * avg_load / 100;
 			freq_next = MAX(freq_next, ex_tuners->gboost_min_freq);
 		}
 
-		target_freq = ex_freq_increase(policy, freq_next, cpu);
+		target_freq = ex_freq_increase(policy, freq_next);
 
 		__cpufreq_driver_target(policy, target_freq, CPUFREQ_RELATION_H);
 
@@ -115,11 +116,11 @@ static void ex_check_cpu(int cpu, unsigned int load)
 
 		if (FREQ_NEED_BURST(cur_freq) &&
 				load > up_threshold_level[0]) {
-			freq_next = policy->max;
+			freq_next = max_freq;
 		}
 		
 		else if (avg_load > up_threshold_level[0]) {
-			freq_next = cur_freq + 1200000;
+			freq_next = max_freq;
 		}
 		
 		else if (avg_load <= up_threshold_level[1]) {
@@ -128,26 +129,29 @@ static void ex_check_cpu(int cpu, unsigned int load)
 	
 		else {		
 			if (load > up_threshold_level[0]) {
-				freq_next = cur_freq + 600000;
+				freq_next = max_freq - 200000;
 			}
 		
 			else {
-				freq_next = cur_freq + 300000;
+				freq_next = cur_freq + 200000;
 			}
 		}
 
-		target_freq = ex_freq_increase(policy, freq_next, cpu);
+		target_freq = ex_freq_increase(policy, freq_next);
 
 		__cpufreq_driver_target(policy, target_freq, CPUFREQ_RELATION_H);
 
 		goto finished;
 	}
 
-	if (++dbs_info->down_floor > ex_tuners->sampling_down_factor)
-		dbs_info->down_floor = 0;
-
-	if (cur_freq == policy->min){
+	if (cur_freq == policy->min)
 		goto finished;
+
+	if (cur_freq >= ex_data.active_floor_freq) {
+		if (++dbs_info->down_floor > ex_tuners->sampling_down_factor)
+			dbs_info->down_floor = 0;
+	} else {
+		dbs_info->down_floor = 0;
 	}
 
 	if (max_load_freq <
@@ -158,10 +162,13 @@ static void ex_check_cpu(int cpu, unsigned int load)
 				(ex_tuners->up_threshold -
 				 ex_tuners->down_differential);
 
-		if (dbs_info->down_floor)
+		if (dbs_info->down_floor && !ex_data.suspended) {
 			freq_next = MAX(freq_next, ex_data.active_floor_freq);
-		else
+		} else {
 			freq_next = MAX(freq_next, policy->min);
+			if (freq_next < ex_data.active_floor_freq)
+				dbs_info->down_floor = ex_tuners->sampling_down_factor;
+		}
 
 		__cpufreq_driver_target(policy, freq_next,
 			CPUFREQ_RELATION_L);
