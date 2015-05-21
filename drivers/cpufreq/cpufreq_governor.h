@@ -203,7 +203,6 @@ struct ex_dbs_tuners {
 	unsigned int gboost;
 	unsigned int gboost_min_freq;
 	unsigned int active_floor_freq;
-	unsigned int max_screen_off_freq;
 	unsigned int sampling_down_factor;
 };
 
