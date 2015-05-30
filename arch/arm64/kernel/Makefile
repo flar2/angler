@@ -35,6 +35,7 @@ arm64-obj-$(CONFIG_KGDB)		+= kgdb.o
 arm64-obj-$(CONFIG_EFI)			+= efi.o efi-stub.o efi-entry.o
 
 obj-$(CONFIG_SWP_EMULATE)	+= swp_emulate.o
+arm64-obj-$(CONFIG_KEXEC)		+= machine_kexec.o relocate_kernel.o
 
 obj-$(CONFIG_PCI)                      += pcibios.o
 obj-y					+= $(arm64-obj-y) vdso/
