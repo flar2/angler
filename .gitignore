@@ -82,6 +82,11 @@ GTAGS
 
 *.orig
 *~
+*.rej
+*.diff
+*.patch
+*.list
+
 \#*#
 
 #
