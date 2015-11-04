@@ -191,13 +191,13 @@ static struct pll_clk a57_pll0 = {
 		.test_ctl_lo_val = 0x00010000,
 	},
 	.min_rate = 1209600000,
-	.max_rate = 1996800000,
+	.max_rate = 2073600000,
 	.base = &vbases[C1_PLL_BASE],
 	.c = {
 		.parent = &xo_ao.c,
 		.dbg_name = "a57_pll0",
 		.ops = &clk_ops_variable_rate_pll,
-		VDD_DIG_FMAX_MAP2(LOW, 1593600000, NOMINAL, 1996800000),
+		VDD_DIG_FMAX_MAP2(LOW, 1593600000, NOMINAL, 2073600000),
 		CLK_INIT(a57_pll0.c),
 	},
 };
@@ -229,13 +229,13 @@ static struct pll_clk a57_pll1 = {
 	/* Necessary since we'll be setting a rate before handoff on V1 */
 	.src_rate = 19200000,
 	.min_rate = 1209600000,
-	.max_rate = 1996800000,
+	.max_rate = 2073600000,
 	.base = &vbases[C1_PLL_BASE],
 	.c = {
 		.parent = &xo_ao.c,
 		.dbg_name = "a57_pll1",
 		.ops = &clk_ops_variable_rate_pll,
-		VDD_DIG_FMAX_MAP2(LOW, 1593600000, NOMINAL, 1996800000),
+		VDD_DIG_FMAX_MAP2(LOW, 1593600000, NOMINAL, 2073600000),
 		CLK_INIT(a57_pll1.c),
 	},
 };
