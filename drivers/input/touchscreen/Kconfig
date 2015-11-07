@@ -1283,6 +1283,9 @@ config TOUCHSCREEN_HUAWEI_SYNAPTICS_DSX_v25
 
 	  If unsure, say N.
 
+config WAKE_GESTURES
+        bool "Wake Gestures"
+
 source "drivers/input/touchscreen/synaptics_dsx25/Kconfig"
 
 endif
