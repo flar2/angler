@@ -1759,7 +1759,7 @@ static int rgb_duration_config(struct qpnp_led_data *led)
 	ramp_step_ms = on_ms / 20;
 	ramp_step_ms = (ramp_step_ms < 5)? 5 : ramp_step_ms;
 
-	// If off_ms == 0 then do not ramp the LED
+	// If off_ms == 0 then the LED will be solid
 	if (!off_ms) {
 		num_duty_pcts = 1;
 		pwm_cfg->duty_cycles->duty_pcts[0] =
@@ -1767,10 +1767,10 @@ static int rgb_duration_config(struct qpnp_led_data *led)
 	} else {
 		num_duty_pcts = RGB_LED_RAMP_STEP_COUNT;
 		for (i = 0; i < num_duty_pcts; i++) {
-			pwm_cfg->duty_cycles->duty_pcts[i] =
-				(led->cdev.brightness *
-				 (100 / (RGB_LED_RAMP_STEP_COUNT - 1)) *
-				 (num_duty_pcts - i - 1)) / RGB_MAX_LEVEL;
+			pwm_cfg->duty_cycles->duty_pcts[i] = off_ms ?
+				(led->cdev.brightness * 25 *
+				 (num_duty_pcts-i-1)) / RGB_MAX_LEVEL :
+                                        100 * led->cdev.brightness / RGB_MAX_LEVEL;
 		}
 	}
 
