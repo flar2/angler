@@ -37,7 +37,7 @@ extern int wcd9xxx_hw_revision;
 extern int speaker_gain_lval;
 extern int speaker_gain_rval;
 
-static int snd_ctrl_locked = 1;
+static int snd_ctrl_locked = 0;
 static int snd_rec_ctrl_locked = 0;
 
 unsigned int tomtom_read(struct snd_soc_codec *codec, unsigned int reg);
@@ -81,50 +81,47 @@ static unsigned int *cache_select(unsigned int reg)
                 case TOMTOM_A_CDC_RX7_VOL_CTL_B2_CTL:
 			out = &cached_regs[10];
 			break;
-                case TOMTOM_A_CDC_RX8_VOL_CTL_B2_CTL:
+                case TOMTOM_A_CDC_TX1_VOL_CTL_GAIN:
 			out = &cached_regs[11];
 			break;
-                case TOMTOM_A_CDC_TX1_VOL_CTL_GAIN:
+                case TOMTOM_A_CDC_TX2_VOL_CTL_GAIN:
 			out = &cached_regs[12];
 			break;
-                case TOMTOM_A_CDC_TX2_VOL_CTL_GAIN:
+                case TOMTOM_A_CDC_TX3_VOL_CTL_GAIN:
 			out = &cached_regs[13];
 			break;
-                case TOMTOM_A_CDC_TX3_VOL_CTL_GAIN:
+                case TOMTOM_A_CDC_TX4_VOL_CTL_GAIN:
 			out = &cached_regs[14];
 			break;
-                case TOMTOM_A_CDC_TX4_VOL_CTL_GAIN:
+                case TOMTOM_A_CDC_TX5_VOL_CTL_GAIN:
 			out = &cached_regs[15];
 			break;
-                case TOMTOM_A_CDC_TX5_VOL_CTL_GAIN:
+                case TOMTOM_A_CDC_TX6_VOL_CTL_GAIN:
 			out = &cached_regs[16];
 			break;
-                case TOMTOM_A_CDC_TX6_VOL_CTL_GAIN:
+                case TOMTOM_A_CDC_TX7_VOL_CTL_GAIN:
 			out = &cached_regs[17];
 			break;
-                case TOMTOM_A_CDC_TX7_VOL_CTL_GAIN:
+                case TOMTOM_A_CDC_TX8_VOL_CTL_GAIN:
 			out = &cached_regs[18];
 			break;
-                case TOMTOM_A_CDC_TX8_VOL_CTL_GAIN:
+                case TOMTOM_A_CDC_TX9_VOL_CTL_GAIN:
 			out = &cached_regs[19];
 			break;
-                case TOMTOM_A_CDC_TX9_VOL_CTL_GAIN:
+                case TOMTOM_A_CDC_TX10_VOL_CTL_GAIN:
 			out = &cached_regs[20];
 			break;
-                case TOMTOM_A_CDC_TX10_VOL_CTL_GAIN:
+		case TOMTOM_A_RX_LINE_1_GAIN:
 			out = &cached_regs[21];
 			break;
-		case TOMTOM_A_RX_LINE_1_GAIN:
+		case TOMTOM_A_RX_LINE_2_GAIN:
 			out = &cached_regs[22];
 			break;
-		case TOMTOM_A_RX_LINE_2_GAIN:
+		case TOMTOM_A_RX_LINE_3_GAIN:
 			out = &cached_regs[23];
 			break;
-		case TOMTOM_A_RX_LINE_3_GAIN:
-			out = &cached_regs[24];
-			break;
 		case TOMTOM_A_RX_LINE_4_GAIN:
-			out = &cached_regs[25];
+			out = &cached_regs[24];
 			break;
         }
 	return out;
@@ -167,7 +164,6 @@ int snd_hax_reg_access(unsigned int reg)
 		case TOMTOM_A_CDC_RX5_VOL_CTL_B2_CTL:
 		case TOMTOM_A_CDC_RX6_VOL_CTL_B2_CTL:
 		case TOMTOM_A_CDC_RX7_VOL_CTL_B2_CTL:
-		case TOMTOM_A_CDC_RX8_VOL_CTL_B2_CTL:
 		case TOMTOM_A_RX_LINE_1_GAIN:
 		case TOMTOM_A_RX_LINE_2_GAIN:
 		case TOMTOM_A_RX_LINE_3_GAIN:
