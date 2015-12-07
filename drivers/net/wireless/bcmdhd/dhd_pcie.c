@@ -1175,7 +1175,6 @@ int dhd_bus_rxctl(struct dhd_bus *bus, uchar *msg, uint msglen)
 {
 	int timeleft;
 	uint rxlen = 0;
-	bool pending;
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
@@ -1183,7 +1182,7 @@ int dhd_bus_rxctl(struct dhd_bus *bus, uchar *msg, uint msglen)
 		return -EIO;
 
 	/* Wait until control frame is available */
-	timeleft = dhd_os_ioctl_resp_wait(bus->dhd, &bus->rxlen, &pending);
+	timeleft = dhd_os_ioctl_resp_wait(bus->dhd, &bus->rxlen);
 	if (timeleft == 0) {
 		DHD_ERROR(("%s: resumed on timeout\n", __FUNCTION__));
 		bus->ioct_resp.cmn_hdr.request_id = 0;
@@ -1198,9 +1197,6 @@ int dhd_bus_rxctl(struct dhd_bus *bus, uchar *msg, uint msglen)
 		DHD_CTL(("%s: resumed on rxctl frame, got %d\n", __FUNCTION__, rxlen));
 	} else if (timeleft == 0) {
 		DHD_ERROR(("%s: resumed on timeout\n", __FUNCTION__));
-	} else if (pending == TRUE) {
-		DHD_CTL(("%s: canceled\n", __FUNCTION__));
-		return -ERESTARTSYS;
 	} else {
 		DHD_CTL(("%s: resumed for unknown reason?\n", __FUNCTION__));
 	}
@@ -1699,6 +1695,7 @@ dhd_bus_txdata(struct dhd_bus *bus, void *txp, uint8 ifidx)
 {
 	unsigned long flags;
 	int ret = BCME_OK;
+	uint8 status;
 	void *txp_pend = NULL;
 	if (!bus->txmode_push) {
 		uint16 flowid;
@@ -1719,7 +1716,8 @@ dhd_bus_txdata(struct dhd_bus *bus, void *txp, uint8 ifidx)
 
 		if ((flowid >= bus->dhd->num_flow_rings) ||
 			(!flow_ring_node->active) ||
-			(flow_ring_node->status == FLOW_RING_STATUS_DELETE_PENDING)) {
+			((flow_ring_node->status != FLOW_RING_STATUS_OPEN) &&
+				(flow_ring_node->status != FLOW_RING_STATUS_PENDING))) {
 			DHD_INFO(("%s: Dropping pkt flowid %d, status %d active %d\n",
 				__FUNCTION__, flowid, flow_ring_node->status,
 				flow_ring_node->active));
@@ -1733,10 +1731,10 @@ dhd_bus_txdata(struct dhd_bus *bus, void *txp, uint8 ifidx)
 
 		if ((ret = dhd_flow_queue_enqueue(bus->dhd, queue, txp)) != BCME_OK)
 			txp_pend = txp;
-
+		status = flow_ring_node->status;
 		DHD_FLOWRING_UNLOCK(flow_ring_node->lock, flags);
 
-		if (flow_ring_node->status) {
+		if (status != FLOW_RING_STATUS_OPEN) {
 			DHD_INFO(("%s: Enq pkt flowid %d, status %d active %d\n",
 			    __FUNCTION__, flowid, flow_ring_node->status,
 			    flow_ring_node->active));
@@ -1792,10 +1790,12 @@ void
 dhd_bus_update_retlen(dhd_bus_t *bus, uint32 retlen, uint32 pkt_id, uint16 status,
 	uint32 resp_len)
 {
-	bus->rxlen = retlen;
 	bus->ioct_resp.cmn_hdr.request_id = pkt_id;
 	bus->ioct_resp.compl_hdr.status = status;
 	bus->ioct_resp.resp_len = (uint16)resp_len;
+	smp_wmb();
+	bus->rxlen = retlen;
+	smp_wmb();
 }
 
 #if defined(DHD_DEBUG)
@@ -2471,7 +2471,6 @@ dhd_bus_devreset(dhd_pub_t *dhdp, uint8 flag)
 				bus->dhd->busstate = DHD_BUS_DOWN;
 			} else {
 				if (bus->intr) {
-					dhdpcie_bus_intr_disable(bus);
 					dhdpcie_free_irq(bus);
 				}
 
@@ -3014,7 +3013,6 @@ dhdpcie_bus_suspend(struct  dhd_bus *bus, bool state)
 {
 
 	int timeleft;
-	bool pending;
 	unsigned long flags;
 	int rc = 0;
 	struct net_device *netdev = NULL;
@@ -3055,7 +3053,7 @@ dhdpcie_bus_suspend(struct  dhd_bus *bus, bool state)
 		DHD_OS_WAKE_LOCK_WAIVE(bus->dhd);
 		dhd_os_set_ioctl_resp_timeout(DEFAULT_IOCTL_RESP_TIMEOUT);
 		dhdpcie_send_mb_data(bus, H2D_HOST_D3_INFORM);
-		timeleft = dhd_os_d3ack_wait(bus->dhd, &bus->wait_for_d3_ack, &pending);
+		timeleft = dhd_os_d3ack_wait(bus->dhd, &bus->wait_for_d3_ack);
 		dhd_os_set_ioctl_resp_timeout(IOCTL_RESP_TIMEOUT);
 		DHD_OS_WAKE_LOCK_RESTORE(bus->dhd);
 
@@ -4347,7 +4345,7 @@ dhd_bus_flow_ring_delete_request(dhd_bus_t *bus, void *arg)
 	flow_ring_node = (flow_ring_node_t *)arg;
 
 	DHD_FLOWRING_LOCK(flow_ring_node->lock, flags);
-	if (flow_ring_node->status & FLOW_RING_STATUS_DELETE_PENDING) {
+	if (flow_ring_node->status == FLOW_RING_STATUS_DELETE_PENDING) {
 		DHD_FLOWRING_UNLOCK(flow_ring_node->lock, flags);
 		DHD_ERROR(("%s :Delete Pending\n", __FUNCTION__));
 		return BCME_ERROR;

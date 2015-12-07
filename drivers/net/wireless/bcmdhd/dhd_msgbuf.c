@@ -170,7 +170,7 @@ static int dhd_msgbuf_set_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd,
 	void *buf, uint len, uint8 action);
 static int dhdmsgbuf_cmplt(dhd_pub_t *dhd, uint32 id, uint32 len, void* buf, void* retbuf);
 
-static int dhd_msgbuf_rxbuf_post(dhd_pub_t *dhd);
+static void dhd_msgbuf_rxbuf_post(dhd_pub_t *dhd);
 static int dhd_prot_rxbufpost(dhd_pub_t *dhd, uint16 count);
 static void dhd_prot_return_rxbuf(dhd_pub_t *dhd, uint16 rxcnt);
 static void dhd_prot_rxcmplt_process(dhd_pub_t *dhd, void* buf, uint16 msglen);
@@ -218,8 +218,8 @@ static void BCMFASTPATH dhd_rxchain_commit(dhd_pub_t *dhd);
 #endif /* DHD_RX_CHAINING */
 
 static uint16 dhd_msgbuf_rxbuf_post_ctrlpath(dhd_pub_t *dhd, bool event_buf, uint32 max_to_post);
-static int dhd_msgbuf_rxbuf_post_ioctlresp_bufs(dhd_pub_t *pub);
-static int dhd_msgbuf_rxbuf_post_event_bufs(dhd_pub_t *pub);
+static void dhd_msgbuf_rxbuf_post_ioctlresp_bufs(dhd_pub_t *pub);
+static void dhd_msgbuf_rxbuf_post_event_bufs(dhd_pub_t *pub);
 
 static void dhd_prot_ring_detach(dhd_pub_t *dhd, msgbuf_ring_t * ring);
 static void dhd_ring_init(dhd_pub_t *dhd, msgbuf_ring_t *ring);
@@ -488,15 +488,20 @@ dhd_pktid_map_fini(dhd_pktid_map_handle_t *handle)
 			} else {
 				DHD_ERROR(("%s: Invalid physaddr 0\n", __FUNCTION__));
 			}
-#ifdef DHD_USE_STATIC_IOCTLBUF
-			if (locker->buf_type == BUFF_TYPE_IOCTL_RX)
+			if (locker->buf_type == BUFF_TYPE_IOCTL_RX ||
+				locker->buf_type == BUFF_TYPE_EVENT_RX) {
+#ifdef DHD_USE_STATIC_CTRLBUF
 				PKTFREE_STATIC(osh, (ulong*)locker->pkt, FALSE);
-			else
-				PKTFREE(osh, (ulong*)locker->pkt, FALSE);
 #else
-			PKTFREE(osh, (ulong*)locker->pkt, FALSE);
-#endif
+				PKTFREE(osh, (ulong*)locker->pkt, FALSE);
+#endif /* DHD_USE_STATIC_CTRLBUF */
+			} else {
+				PKTFREE(osh, (ulong*)locker->pkt, FALSE);
+			}
 		}
+
+		locker->pkt = NULL; /* clear saved pkt */
+		locker->len = 0;
 	}
 
 	DHD_PKTID_UNLOCK(map->pktid_lock, flags);
@@ -539,16 +544,20 @@ dhd_pktid_map_clear(dhd_pktid_map_handle_t *handle)
 			} else {
 				DHD_ERROR(("%s: Invalid physaddr 0\n", __FUNCTION__));
 			}
-#ifdef DHD_USE_STATIC_IOCTLBUF
-			if (locker->buf_type == BUFF_TYPE_IOCTL_RX)
+			if (locker->buf_type == BUFF_TYPE_IOCTL_RX ||
+				locker->buf_type == BUFF_TYPE_EVENT_RX) {
+#ifdef DHD_USE_STATIC_CTRLBUF
 				PKTFREE_STATIC(osh, (ulong*)locker->pkt, FALSE);
-			else
-				PKTFREE(osh, (ulong*)locker->pkt, FALSE);
 #else
-			PKTFREE(osh, (ulong*)locker->pkt, FALSE);
-#endif
-
+				PKTFREE(osh, (ulong*)locker->pkt, FALSE);
+#endif /* DHD_USE_STATIC_CTRLBUF */
+			} else {
+				PKTFREE(osh, (ulong*)locker->pkt, FALSE);
+			}
 		}
+
+		locker->pkt = NULL; /* clear saved pkt */
+		locker->len = 0;
 	}
 	map->avail = map->items;
 	DHD_PKTID_UNLOCK(map->pktid_lock, flags);
@@ -559,15 +568,10 @@ static INLINE uint32 BCMFASTPATH
 dhd_pktid_map_avail_cnt(dhd_pktid_map_handle_t *handle)
 {
 	dhd_pktid_map_t *map;
-	unsigned long flags;
 	uint32 avail;
 
-	ASSERT(handle != NULL);
 	map = (dhd_pktid_map_t *)handle;
-
-	flags = DHD_PKTID_LOCK(map->pktid_lock);
 	avail = map->avail;
-	DHD_PKTID_UNLOCK(map->pktid_lock, flags);
 
 	return avail;
 }
@@ -585,7 +589,6 @@ dhd_pktid_map_reserve(dhd_pktid_map_handle_t *handle, void *pkt)
 	dhd_pktid_map_t *map;
 	dhd_pktid_item_t *locker;
 
-	ASSERT(handle != NULL);
 	map = (dhd_pktid_map_t *)handle;
 
 	if (map->avail <= 0) { /* no more pktids to allocate */
@@ -613,14 +616,15 @@ dhd_pktid_map_save(dhd_pktid_map_handle_t *handle, void *pkt, uint32 nkey,
 	dhd_pktid_map_t *map;
 	dhd_pktid_item_t *locker;
 
-	ASSERT(handle != NULL);
 	map = (dhd_pktid_map_t *)handle;
 
-	ASSERT((nkey != DHD_PKTID_INVALID) && (nkey <= (uint32)map->items));
+	if ((nkey == DHD_PKTID_INVALID) || (nkey > (uint32)map->items)) {
+		DHD_ERROR(("%s: PKTID %d is invalid (PKTIDMAP_ITEMS=%d)\n",
+			__FUNCTION__, nkey, (uint32)map->items));
+		return;
+	}
 
 	locker = &map->lockers[nkey];
-	ASSERT(locker->pkt == pkt);
-
 	locker->dma = dma; /* store contents in locker */
 	locker->physaddr = physaddr;
 	locker->len = (uint16)len; /* 16bit len */
@@ -635,11 +639,9 @@ dhd_pktid_map_alloc(dhd_pktid_map_handle_t *handle, void *pkt,
 	unsigned long flags;
 	dhd_pktid_map_t *map;
 
-	ASSERT(handle != NULL);
 	map = (dhd_pktid_map_t *)handle;
 
 	flags = DHD_PKTID_LOCK(map->pktid_lock);
-
 	nkey = dhd_pktid_map_reserve(handle, pkt);
 	if (nkey != DHD_PKTID_INVALID) {
 		dhd_pktid_map_save(handle, pkt, nkey, physaddr, len, dma, buf_type);
@@ -662,10 +664,14 @@ dhd_pktid_map_free(dhd_pktid_map_handle_t *handle, uint32 nkey,
 	dhd_pktid_item_t *locker;
 	void *pkt;
 	unsigned long flags;
-	ASSERT(handle != NULL);
 
 	map = (dhd_pktid_map_t *)handle;
-	ASSERT((nkey != DHD_PKTID_INVALID) && (nkey <= (uint32)map->items));
+
+	if ((nkey == DHD_PKTID_INVALID) || (nkey > (uint32)map->items)) {
+		DHD_ERROR(("%s: PKTID %d is invalid (PKTIDMAP_ITEMS=%d)\n",
+			__FUNCTION__, nkey, (uint32)map->items));
+		return NULL;
+	}
 
 	flags = DHD_PKTID_LOCK(map->pktid_lock);
 
@@ -674,15 +680,12 @@ dhd_pktid_map_free(dhd_pktid_map_handle_t *handle, uint32 nkey,
 	if (locker->inuse == FALSE) { /* Debug check for cloned numbered key */
 		DHD_ERROR(("%s:%d: Error! freeing invalid pktid<%u>\n",
 		           __FUNCTION__, __LINE__, nkey));
-		ASSERT(locker->inuse != FALSE);
 		DHD_PKTID_UNLOCK(map->pktid_lock, flags);
 		return NULL;
 	}
 	if ((buf_type != BUFF_TYPE_NO_CHECK) && (locker->buf_type != buf_type)) {
 		DHD_ERROR(("%s:%d: Error! Invalid Buffer Free for pktid<%u> \n",
 		           __FUNCTION__, __LINE__, nkey));
-
-		ASSERT(locker->buf_type == buf_type);
 		DHD_PKTID_UNLOCK(map->pktid_lock, flags);
 		return NULL;
 	}
@@ -1058,10 +1061,6 @@ int dhd_sync_with_dongle(dhd_pub_t *dhd)
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
-	/* Post event buffer after shim layer is attached */
-	ret = dhd_msgbuf_rxbuf_post_event_bufs(dhd);
-
-
 	/* Get the device rev info */
 	memset(&revinfo, 0, sizeof(revinfo));
 	ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_REVINFO, &revinfo, sizeof(revinfo), FALSE, 0);
@@ -1086,7 +1085,6 @@ done:
 */
 int dhd_prot_init(dhd_pub_t *dhd)
 {
-	int ret = 0;
 	dhd_prot_t *prot = dhd->prot;
 
 	/* Max pkts in ring */
@@ -1162,10 +1160,11 @@ int dhd_prot_init(dhd_pub_t *dhd)
 
 	}
 
-	ret = dhd_msgbuf_rxbuf_post(dhd);
-	ret = dhd_msgbuf_rxbuf_post_ioctlresp_bufs(dhd);
+	dhd_msgbuf_rxbuf_post(dhd);
+	dhd_msgbuf_rxbuf_post_ioctlresp_bufs(dhd);
+	dhd_msgbuf_rxbuf_post_event_bufs(dhd);
 
-	return ret;
+	return BCME_OK;
 }
 
 #define DHD_DBG_SHOW_METADATA	0
@@ -1249,16 +1248,18 @@ dhd_prot_packet_free(dhd_pub_t *dhd, uint32 pktid, uint8 buf_type)
 		} else {
 			DHD_ERROR(("%s: Invalid physaddr 0\n", __FUNCTION__));
 		}
-#ifdef DHD_USE_STATIC_IOCTLBUF
-		if (buf_type == BUFF_TYPE_IOCTL_RX)
+
+		if (buf_type == BUFF_TYPE_IOCTL_RX ||
+			buf_type == BUFF_TYPE_EVENT_RX) {
+#ifdef DHD_USE_STATIC_CTRLBUF
 			PKTFREE_STATIC(dhd->osh, PKTBUF, FALSE);
-		else
-			PKTFREE(dhd->osh, PKTBUF, FALSE);
 #else
-		PKTFREE(dhd->osh, PKTBUF, FALSE);
-#endif
+			PKTFREE(dhd->osh, PKTBUF, FALSE);
+#endif /* DHD_USE_STATIC_CTRLBUF */
+		} else {
+			PKTFREE(dhd->osh, PKTBUF, FALSE);
+		}
 	}
-	return;
 }
 
 static INLINE void * BCMFASTPATH
@@ -1275,7 +1276,7 @@ dhd_prot_packet_get(dhd_pub_t *dhd, uint32 pktid, uint8 buf_type)
 	return PKTBUF;
 }
 
-static int BCMFASTPATH
+static void BCMFASTPATH
 dhd_msgbuf_rxbuf_post(dhd_pub_t *dhd)
 {
 	dhd_prot_t *prot = dhd->prot;
@@ -1310,7 +1311,7 @@ dhd_msgbuf_rxbuf_post(dhd_pub_t *dhd)
 		}
 	}
 
-	return 0;
+	return;
 }
 
 /* Post count no of rx buffers down to dongle */
@@ -1326,9 +1327,10 @@ dhd_prot_rxbufpost(dhd_pub_t *dhd, uint16 count)
 	uint32 pktlen;
 	dhd_prot_t *prot = dhd->prot;
 	msgbuf_ring_t * ring = prot->h2dring_rxp_subn;
-	uint8 i = 0;
+	uint16 i = 0;
 	uint16 alloced = 0;
 	unsigned long flags;
+	uint32 pktid;
 
 	DHD_GENERAL_LOCK(dhd, flags);
 	/* Claim space for 'count' no of messages */
@@ -1336,66 +1338,56 @@ dhd_prot_rxbufpost(dhd_pub_t *dhd, uint16 count)
 	DHD_GENERAL_UNLOCK(dhd, flags);
 
 	if (msg_start == NULL) {
-		DHD_INFO(("%s:%d: Rxbufpost Msgbuf Not available\n", __FUNCTION__, __LINE__));
+		DHD_ERROR(("%s:%d: Rxbufpost Msgbuf not available\n", __FUNCTION__, __LINE__));
 		return -1;
 	}
-	/* if msg_start !=  NULL, we should have alloced space for atleast 1 item */
-	ASSERT(alloced > 0);
+
+	if (alloced < 1) {
+		DHD_ERROR(("%s:%d: Must have alloced space at least 1 item\n",
+			__FUNCTION__, __LINE__));
+		return -1;
+	}
 
 	rxbuf_post_tmp = (uint8*)msg_start;
 
-	/* loop through each message */
+	/* loop through each allocated message in the host ring */
 	for (i = 0; i < alloced; i++) {
 		rxbuf_post = (host_rxbuf_post_t *)rxbuf_post_tmp;
+
 		/* Create a rx buffer */
 		if ((p = PKTGET(dhd->osh, pktsz, FALSE)) == NULL) {
 			DHD_ERROR(("%s:%d: PKTGET for rxbuf failed\n", __FUNCTION__, __LINE__));
-			return -1;
+			break;
 		}
 
 		pktlen = PKTLEN(dhd->osh, p);
 		physaddr = DMA_MAP(dhd->osh, PKTDATA(dhd->osh, p), pktlen, DMA_RX, p, 0);
 		if (PHYSADDRISZERO(physaddr)) {
-			if (RING_WRITE_PTR(ring) < alloced - i)
-				RING_WRITE_PTR(ring) = RING_MAX_ITEM(ring) - alloced + i;
-			else
-				RING_WRITE_PTR(ring) -= alloced - i;
-			alloced = i;
+			DMA_UNMAP(dhd->osh, physaddr, pktlen, DMA_RX, 0, 0);
 			PKTFREE(dhd->osh, p, FALSE);
-			DHD_ERROR(("Invalid phyaddr 0\n"));
-			ASSERT(0);
+			DHD_ERROR(("%s:%d: Invalid phyaddr 0\n", __FUNCTION__, __LINE__));
 			break;
 		}
 
 		PKTPULL(dhd->osh, p, prot->rx_metadata_offset);
 		pktlen = PKTLEN(dhd->osh, p);
 
-		/* CMN msg header */
-		rxbuf_post->cmn_hdr.msg_type = MSG_TYPE_RXBUF_POST;
-		rxbuf_post->cmn_hdr.if_id = 0;
-
-		/* get the lock before calling NATIVE_TO_PKTID */
+		/* Get the lock before calling NATIVE_TO_PKTID */
 		DHD_GENERAL_LOCK(dhd, flags);
-
-		rxbuf_post->cmn_hdr.request_id =
-			htol32(NATIVE_TO_PKTID(dhd->prot->pktid_map_handle, p, physaddr,
+		pktid = htol32(NATIVE_TO_PKTID(dhd->prot->pktid_map_handle, p, physaddr,
 			pktlen, DMA_RX, BUFF_TYPE_DATA_RX));
-
-		/* free lock */
 		DHD_GENERAL_UNLOCK(dhd, flags);
 
-		if (rxbuf_post->cmn_hdr.request_id == DHD_PKTID_INVALID) {
-			if (RING_WRITE_PTR(ring) < alloced - i)
-				RING_WRITE_PTR(ring) = RING_MAX_ITEM(ring) - alloced + i;
-			else
-				RING_WRITE_PTR(ring) -= alloced - i;
-			alloced = i;
+		if (pktid == DHD_PKTID_INVALID) {
 			DMA_UNMAP(dhd->osh, physaddr, pktlen, DMA_RX, 0, 0);
 			PKTFREE(dhd->osh, p, FALSE);
-			DHD_ERROR(("Pktid pool depleted.\n"));
+			DHD_ERROR(("%s:%d: Pktid pool depleted.\n", __FUNCTION__, __LINE__));
 			break;
 		}
 
+		/* Common msg header */
+		rxbuf_post->cmn_hdr.msg_type = MSG_TYPE_RXBUF_POST;
+		rxbuf_post->cmn_hdr.if_id = 0;
 		rxbuf_post->data_buf_len = htol16((uint16)pktlen);
 		rxbuf_post->data_buf_addr.high_addr = htol32(PHYSADDRHI(physaddr));
 		rxbuf_post->data_buf_addr.low_addr =
@@ -1411,12 +1403,26 @@ dhd_prot_rxbufpost(dhd_pub_t *dhd, uint16 count)
 			rxbuf_post->metadata_buf_addr.low_addr  = 0;
 		}
 
+		rxbuf_post->cmn_hdr.request_id = htol32(pktid);
+
 		/* Move rxbuf_post_tmp to next item */
 		rxbuf_post_tmp = rxbuf_post_tmp + RING_LEN_ITEMS(ring);
 	}
+
+	if (i < alloced) {
+		if (RING_WRITE_PTR(ring) < (alloced - i))
+			RING_WRITE_PTR(ring) = RING_MAX_ITEM(ring) - (alloced - i);
+		else
+			RING_WRITE_PTR(ring) -= (alloced - i);
+
+		alloced = i;
+	}
+
 	/* Update the write pointer in TCM & ring bell */
-	if (alloced > 0)
+	if (alloced > 0) {
+		DHD_INFO(("Allocated %d buffers for info ring\n", alloced));
 		prot_ring_write_complete(dhd, prot->h2dring_rxp_subn, msg_start, alloced);
+	}
 
 	return alloced;
 }
@@ -1449,14 +1455,11 @@ dhd_prot_rxbufpost_ctrl(dhd_pub_t *dhd, bool event_buf)
 		buf_type = BUFF_TYPE_IOCTL_RX;
 	}
 
-#ifdef DHD_USE_STATIC_IOCTLBUF
-	if (!event_buf)
-		p = PKTGET_STATIC(dhd->osh, pktsz, FALSE);
-	else
-		p = PKTGET(dhd->osh, pktsz, FALSE);
+#ifdef DHD_USE_STATIC_CTRLBUF
+	p = PKTGET_STATIC(dhd->osh, pktsz, FALSE);
 #else
 	p = PKTGET(dhd->osh, pktsz, FALSE);
-#endif
+#endif /* DHD_USE_STATIC_CTRLBUF */
 
 	if (p == NULL) {
 		DHD_ERROR(("%s:%d: PKTGET for %s rxbuf failed\n",
@@ -1520,14 +1523,11 @@ dhd_prot_rxbufpost_ctrl(dhd_pub_t *dhd, bool event_buf)
 	return 1;
 
 free_pkt_return:
-#ifdef DHD_USE_STATIC_IOCTLBUF
-	if (buf_type == BUFF_TYPE_IOCTL_RX)
-		PKTFREE_STATIC(dhd->osh, p, FALSE);
-	else
-		PKTFREE(dhd->osh, p, FALSE);
+#ifdef DHD_USE_STATIC_CTRLBUF
+	PKTFREE_STATIC(dhd->osh, p, FALSE);
 #else
 	PKTFREE(dhd->osh, p, FALSE);
-#endif
+#endif /* DHD_USE_STATIC_CTRLBUF */
 
 	return -1;
 }
@@ -1549,26 +1549,39 @@ dhd_msgbuf_rxbuf_post_ctrlpath(dhd_pub_t *dhd, bool event_buf, uint32 max_to_pos
 	return (uint16)i;
 }
 
-static int
+static void
 dhd_msgbuf_rxbuf_post_ioctlresp_bufs(dhd_pub_t *dhd)
 {
 	dhd_prot_t *prot = dhd->prot;
-	uint16 retcnt = 0;
+	int max_to_post;
 
 	DHD_INFO(("ioctl resp buf post\n"));
-	retcnt = dhd_msgbuf_rxbuf_post_ctrlpath(dhd, FALSE,
-		prot->max_ioctlrespbufpost - prot->cur_ioctlresp_bufs_posted);
-	prot->cur_ioctlresp_bufs_posted += retcnt;
-	return 0;
+	max_to_post = prot->max_ioctlrespbufpost - prot->cur_ioctlresp_bufs_posted;
+	if (max_to_post <= 0) {
+		DHD_INFO(("%s: Cannot post more than maximum ioctl response buffers\n",
+			__FUNCTION__));
+		return;
+	}
+	prot->cur_ioctlresp_bufs_posted +=
+		dhd_msgbuf_rxbuf_post_ctrlpath(dhd, FALSE, max_to_post);
+	return;
 }
 
-static int
+static void
 dhd_msgbuf_rxbuf_post_event_bufs(dhd_pub_t *dhd)
 {
 	dhd_prot_t *prot = dhd->prot;
-	prot->cur_event_bufs_posted += dhd_msgbuf_rxbuf_post_ctrlpath(dhd, TRUE,
-		prot->max_eventbufpost - prot->cur_event_bufs_posted);
-	return 0;
+	int max_to_post;
+
+	max_to_post = prot->max_eventbufpost - prot->cur_event_bufs_posted;
+	if (max_to_post <= 0) {
+		DHD_INFO(("%s: Cannot post more than maximum event buffers\n",
+			__FUNCTION__));
+		return;
+	}
+	prot->cur_event_bufs_posted +=
+		dhd_msgbuf_rxbuf_post_ctrlpath(dhd, TRUE, max_to_post);
+	return;
 }
 
 int BCMFASTPATH
@@ -2638,12 +2651,11 @@ dhdmsgbuf_cmplt(dhd_pub_t *dhd, uint32 id, uint32 len, void* buf, void* retbuf)
 			bcopy(PKTDATA(dhd->osh, pkt), buf, len);
 		}
 		if (pkt) {
-#ifdef DHD_USE_STATIC_IOCTLBUF
+#ifdef DHD_USE_STATIC_CTRLBUF
 			PKTFREE_STATIC(dhd->osh, pkt, FALSE);
 #else
 			PKTFREE(dhd->osh, pkt, FALSE);
-#endif /* DHD_USE_STATIC_IOCTLBUF */
-
+#endif /* DHD_USE_STATIC_CTRLBUF */
 		}
 	} else {
 		DHD_GENERAL_LOCK(dhd, flags);
@@ -3333,6 +3345,7 @@ prot_get_src_addr(dhd_pub_t *dhd, msgbuf_ring_t * ring, uint16* available_len)
 	uint16 w_ptr;
 	uint16 r_ptr;
 	uint16 depth;
+	uint16 items;
 	void* ret_addr = NULL;
 	uint16 d2h_w_index = 0;
 
@@ -3354,25 +3367,36 @@ prot_get_src_addr(dhd_pub_t *dhd, msgbuf_ring_t * ring, uint16* available_len)
 	depth = ring->ringmem->max_item;
 
 	/* check for avail space */
-	*available_len = READ_AVAIL_SPACE(w_ptr, r_ptr, depth);
-	if (*available_len == 0)
+	items = READ_AVAIL_SPACE(w_ptr, r_ptr, depth);
+	if (items == 0) {
+		*available_len = 0;
 		return NULL;
+	}
 
-	ASSERT(*available_len <= ring->ringmem->max_item);
+	ASSERT(items <= ring->ringmem->max_item);
+	if (items > ring->ringmem->max_item) {
+		DHD_ERROR(("%s: ring:%p, ring->name:%s, items:%d\n", __FUNCTION__,
+			ring, ring->name, items));
+		DHD_INFO(("%s: w_offset:%d, r_offset:%d, max_item:%d\n", __FUNCTION__,
+			ring->ringstate->w_offset, ring->ringstate->r_offset, ring->ringmem->max_item));
+		DHD_INFO(("%s: dhd->busstate:%d, bus->suspended:%d, bus->wait_for_d3_ack:%d\n",
+			__FUNCTION__, dhd->busstate, dhd->bus->suspended, dhd->bus->wait_for_d3_ack));
+
+		*available_len = 0;
+		return NULL;
+	}
 
 	/* if space available, calculate address to be read */
 	ret_addr = (char*)ring->ring_base.va + (r_ptr * ring->ringmem->len_items);
 
 	/* update read pointer */
-	if ((ring->ringstate->r_offset + *available_len) >= ring->ringmem->max_item)
+	if ((ring->ringstate->r_offset + items) >= ring->ringmem->max_item)
 		ring->ringstate->r_offset = 0;
 	else
-		ring->ringstate->r_offset += *available_len;
-
-	ASSERT(ring->ringstate->r_offset < ring->ringmem->max_item);
+		ring->ringstate->r_offset += items;
 
 	/* convert index to bytes */
-	*available_len = *available_len * ring->ringmem->len_items;
+	*available_len = items * ring->ringmem->len_items;
 
 	/* return read address */
 	return ret_addr;
