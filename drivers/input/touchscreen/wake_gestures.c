@@ -80,6 +80,9 @@ static struct input_dev *gesture_dev;
 int s2w_switch = S2W_DEFAULT;
 int s2w_switch_temp; 
 bool dt2w_switch;
+int camera_switch;
+int camera_switch_temp;
+static bool camera = false;
 static int s2s_switch = S2S_DEFAULT;
 static int touch_x = 0, touch_y = 0;
 static bool touch_x_called = false, touch_y_called = false;
@@ -133,6 +136,17 @@ static void wake_presspwr(struct work_struct * wake_presspwr_work) {
 	input_event(wake_dev, EV_KEY, KEY_POWER, 0);
 	input_event(wake_dev, EV_SYN, 0, 0);
 	msleep(WG_PWRKEY_DUR);
+
+	if (camera) {
+		input_event(wake_dev, EV_KEY, KEY_POWER, 1);
+		input_event(wake_dev, EV_SYN, 0, 0);
+		msleep(WG_PWRKEY_DUR);
+		input_event(wake_dev, EV_KEY, KEY_POWER, 0);
+		input_event(wake_dev, EV_SYN, 0, 0);
+		msleep(WG_PWRKEY_DUR);
+		camera = false;
+	}
+
     	mutex_unlock(&pwrkeyworklock);
 
 	return;
@@ -140,14 +154,18 @@ static void wake_presspwr(struct work_struct * wake_presspwr_work) {
 static DECLARE_WORK(wake_presspwr_work, wake_presspwr);
 
 /* PowerKey trigger */
-static void wake_pwrtrigger(void) {
+static void wake_pwrtrigger(bool camera_trigger) {
 	pwrtrigger_time[1] = pwrtrigger_time[0];
 	pwrtrigger_time[0] = jiffies;
 	
 	if (pwrtrigger_time[0] - pwrtrigger_time[1] < TRIGGER_TIMEOUT)
 		return;
 
-	set_vibrate(vib_strength);
+	if (!camera_trigger)
+		set_vibrate(vib_strength);
+	else
+		camera = true;
+
 	schedule_work(&wake_presspwr_work);
         return;
 }
@@ -219,7 +237,7 @@ static void detect_doubletap2wake(int x, int y, bool st)
 				report_gesture(5);
 			} else {
 #endif
-				wake_pwrtrigger();
+				wake_pwrtrigger(false);
 #if (WAKE_GESTURES_ENABLED)
 			}
 #endif
@@ -282,7 +300,7 @@ static void detect_sweep2wake_v(int x, int y, bool st)
 								report_gesture(3);
 							} else {
 #endif
-								wake_pwrtrigger();
+								wake_pwrtrigger(false);
 #if (WAKE_GESTURES_ENABLED)
 							}		
 #endif								
@@ -293,7 +311,7 @@ static void detect_sweep2wake_v(int x, int y, bool st)
 			}
 		}
 	//sweep down
-	} else if (firsty <= SWEEP_Y_START && single_touch && s2w_switch & SWEEP_DOWN) {
+	} else if (firsty <= SWEEP_Y_START && single_touch && (s2w_switch & SWEEP_DOWN || camera_switch)) {
 		prevy = firsty;
 		nexty = prevy + SWEEP_Y_NEXT;
 		if (barriery[0] == true || (y > prevy && y < nexty)) {
@@ -311,7 +329,7 @@ static void detect_sweep2wake_v(int x, int y, bool st)
 								report_gesture(4);
 							} else {
 #endif
-								wake_pwrtrigger();
+								wake_pwrtrigger(camera_switch);
 #if (WAKE_GESTURES_ENABLED)
 							}								
 #endif
@@ -367,7 +385,7 @@ static void detect_sweep2wake_h(int x, int y, bool st, bool scr_suspended)
 								report_gesture(1);
 							} else {
 #endif
-								wake_pwrtrigger();
+								wake_pwrtrigger(false);
 #if (WAKE_GESTURES_ENABLED)
 							}
 #endif							
@@ -400,7 +418,7 @@ static void detect_sweep2wake_h(int x, int y, bool st, bool scr_suspended)
 								report_gesture(2);
 							} else {
 #endif
-								wake_pwrtrigger();
+								wake_pwrtrigger(false);
 #if (WAKE_GESTURES_ENABLED)
 							}		
 #endif							
@@ -425,7 +443,7 @@ static void s2w_input_callback(struct work_struct *unused)
 static void dt2w_input_callback(struct work_struct *unused)
 {
 
-	if (scr_suspended() && s2w_switch > 0 && dt2w_switch)
+	if (scr_suspended() && (s2w_switch > 0 || camera_switch) && dt2w_switch)
 		detect_doubletap2wake(touch_x, touch_y, true);
 	return;
 }
@@ -560,7 +578,7 @@ static ssize_t sweep2wake_dump(struct device *dev,
 	if (s2w_switch_temp < 0 || s2w_switch_temp > 15)
 		s2w_switch_temp = 0;
 		
-	if (s2w_switch_temp == 0)
+	if (!s2w_switch_temp && !camera_switch)
 		set_internal_dt(dt2w_switch);
 	else {
 		set_internal_dt(false);
@@ -617,7 +635,7 @@ static ssize_t doubletap2wake_dump(struct device *dev,
 
 	dt2w_switch = (input) ? true : false;		
 	
-	if (s2w_switch == 0 || s2w_switch_temp == 0)
+	if ((!s2w_switch || !s2w_switch_temp) && (!camera_switch || !camera_switch_temp))
 		set_internal_dt(dt2w_switch);
 
 	return count;
@@ -626,6 +644,37 @@ static ssize_t doubletap2wake_dump(struct device *dev,
 static DEVICE_ATTR(doubletap2wake, (S_IWUSR|S_IRUGO),
 	doubletap2wake_show, doubletap2wake_dump);
 	
+static ssize_t camera_gesture_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	size_t count = 0;
+
+	count += sprintf(buf, "%d\n", camera_switch);
+
+	return count;
+}
+
+static ssize_t camera_gesture_dump(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	sscanf(buf, "%d ", &camera_switch_temp);
+	if (camera_switch_temp < 0 || camera_switch_temp > 1)
+		camera_switch_temp = 0;
+
+	if (!camera_switch_temp && !s2w_switch)
+		set_internal_dt(dt2w_switch);
+	else
+		set_internal_dt(false);
+
+	if (!scr_suspended())
+		camera_switch = camera_switch_temp;
+
+	return count;
+}
+
+static DEVICE_ATTR(camera_gesture, (S_IWUSR|S_IRUGO),
+	camera_gesture_show, camera_gesture_dump);
+
 #if (WAKE_GESTURES_ENABLED)
 static ssize_t wake_gestures_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -739,6 +788,10 @@ static int __init wake_gestures_init(void)
 	rc = sysfs_create_file(android_touch_kobj, &dev_attr_vib_strength.attr);
 	if (rc) {
 		pr_warn("%s: sysfs_create_file failed for vib_strength\n", __func__);
+	}
+	rc = sysfs_create_file(android_touch_kobj, &dev_attr_camera_gesture.attr);
+	if (rc) {
+		pr_warn("%s: sysfs_create_file failed for camera_gesture\n", __func__);
 	}
 #if (WAKE_GESTURES_ENABLED)
 	rc = sysfs_create_file(android_touch_kobj, &dev_attr_wake_gestures.attr);
