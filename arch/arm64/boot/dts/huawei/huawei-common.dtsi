@@ -223,4 +223,14 @@
 	};
 };
 
+&mdss_mdp {
+	dsi_samsung_s6e3ha3x01_5p7_1440p_cmd_0: qcom,mdss_dsi_dualmipi0_cmd {
+		qcom,mdss-dsi-hbm-on-command = [
+			/* HBM setting in 2 MSB bits of reg 53 */
+			15 01 00 00 00 00 02 53 e0];
+		qcom,mdss-dsi-hbm-off-command = [
+			15 01 00 00 00 00 02 53 20];
+	};
+};
+
 #include "huawei-led.dtsi"
