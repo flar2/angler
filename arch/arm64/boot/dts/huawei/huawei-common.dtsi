@@ -18,7 +18,10 @@
 		ramoops_mem: ramoops_region@0 {
 			linux,reserve-contiguous-region;
 			linux,reserve-region;
-			reg = <0 0x1fe00000 0 0x00200000>;
+			/* Hardboot: reserve 1MB of space
+			 * before ramoops address of 0x1fe00000
+			 */
+			reg = <0 0x1fd00000 0 0x00300000>;
 			linux,remove-completely;
 			label = "ramoops_mem";
 		};
@@ -40,7 +43,8 @@
 		linux,contiguous-region = <&ramoops_mem>;
 		android,ramoops-hole {
 			compatible = "qcom,msm-contig-mem";
-			qcom,memblock-reserve = <0x1fe00000 0x00200000>;
+			/* Hardboot: reserve 1MB */
+			qcom,memblock-reserve = <0x1fd00000 0x00300000>;
 		};
 	};
 
