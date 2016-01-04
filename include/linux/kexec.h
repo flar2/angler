@@ -111,6 +111,10 @@ struct kimage {
 #define KEXEC_TYPE_CRASH   1
 	unsigned int preserve_context : 1;
 
+#ifdef CONFIG_KEXEC_HARDBOOT
+	unsigned int hardboot : 1;
+#endif
+
 #ifdef ARCH_HAS_KIMAGE_ARCH
 	struct kimage_arch arch;
 #endif
@@ -145,6 +149,11 @@ void arch_crash_save_vmcoreinfo(void);
 __printf(1, 2)
 void vmcoreinfo_append_str(const char *fmt, ...);
 unsigned long paddr_vmcoreinfo_note(void);
+#ifdef CONFIG_KEXEC_HARDBOOT
+/* FIXME: Hack: memory reservation should be done properly - see kexec.c */
+bool arch_kexec_is_hardboot_buffer_range(unsigned long start,
+	unsigned long end);
+#endif
 
 #define VMCOREINFO_OSRELEASE(value) \
 	vmcoreinfo_append_str("OSRELEASE=%s\n", value)
@@ -176,10 +185,14 @@ extern struct kimage *kexec_crash_image;
 #endif
 
 /* List of defined/legal kexec flags */
-#ifndef CONFIG_KEXEC_JUMP
-#define KEXEC_FLAGS    KEXEC_ON_CRASH
-#else
+#if defined(CONFIG_KEXEC_JUMP) && defined(CONFIG_KEXEC_HARDBOOT)
+#define KEXEC_FLAGS    (KEXEC_ON_CRASH | KEXEC_PRESERVE_CONTEXT | KEXEC_HARDBOOT)
+#elif defined(CONFIG_KEXEC_JUMP)
 #define KEXEC_FLAGS    (KEXEC_ON_CRASH | KEXEC_PRESERVE_CONTEXT)
+#elif defined(CONFIG_KEXEC_HARDBOOT)
+#define KEXEC_FLAGS    (KEXEC_ON_CRASH | KEXEC_HARDBOOT)
+#else
+#define KEXEC_FLAGS    (KEXEC_ON_CRASH)
 #endif
 
 #define VMCOREINFO_BYTES           (4096)

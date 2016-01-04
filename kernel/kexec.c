@@ -734,7 +734,22 @@ static struct page *kimage_alloc_page(struct kimage *image,
 			list_add(&page->lru, &image->unuseable_pages);
 			continue;
 		}
+
 		addr = page_to_pfn(page) << PAGE_SHIFT;
+#ifdef CONFIG_KEXEC_HARDBOOT
+		/* FIXME: Stupid stupid stupid hack: if page falls
+		 * in hardboot area, file it away.
+		 * This is to avoid reserving 64MB of RAM
+		 * Someone smarter than me please fix this
+		 */
+		if (arch_kexec_is_hardboot_buffer_range(addr,
+			addr + PAGE_SIZE)) {
+			printk("page %lx inside hardboot buffer, "
+				"removing\n", addr);
+			list_add(&page->lru, &image->unuseable_pages);
+			continue;
+		}
+#endif
 
 		/* If it is the destination page we want use it */
 		if (addr == destination)
@@ -783,6 +798,12 @@ static struct page *kimage_alloc_page(struct kimage *image,
 	}
 
 	return page;
+}
+
+bool __weak arch_kexec_is_hardboot_buffer_range(unsigned long s,
+	unsigned long e)
+{
+	return false;
 }
 
 static int kimage_load_normal_segment(struct kimage *image,
@@ -1002,6 +1023,10 @@ SYSCALL_DEFINE4(kexec_load, unsigned long, entry, unsigned long, nr_segments,
 
 		if (flags & KEXEC_PRESERVE_CONTEXT)
 			image->preserve_context = 1;
+#ifdef CONFIG_KEXEC_HARDBOOT
+		if (flags & KEXEC_HARDBOOT)
+			image->hardboot = 1;
+#endif
 		result = machine_kexec_prepare(image);
 		if (result)
 			goto out;
