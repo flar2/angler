@@ -44,6 +44,10 @@ relocate_new_kernel:
 	ldr	x22, =KEXEC_HB_PAGE_ADDR
 	ldr	x23, =(0xdeaf0000)
 	str	x23, [x22]
+	ldr	x24, arm64_kexec_hardboot
+	cbz	x24, first_not_hardboot
+	str	x23, [x22, #56]
+first_not_hardboot:
 
 	/* Setup the list loop variables. */
 	ldr	x18, arm64_kexec_kimage_head	/* x18 = list entry */
@@ -114,10 +118,13 @@ relocate_new_kernel:
 	/* entry = *ptr++ */
 	ldr	x18, [x15], #8
 
+	ldr	x24, arm64_kexec_hardboot
+	cbz	x24, second_not_hardboot
 	ldr	x22, =KEXEC_HB_PAGE_ADDR
-	ldr	x23, [x22]
+	ldr	x23, [x22, #56]
 	add	x23, x23, #1
-	str	x23, [x22]
+	str	x23, [x22, #56]
+second_not_hardboot:
 
 	/* while (!(entry & DONE)) */
 	tbz	x18, IND_DONE_BIT, .Lloop
