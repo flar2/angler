@@ -257,6 +257,8 @@ ENTRY(stext)
 	str	x22, [x21, #24]
 	str	x0, [x21, #32]
 	str	x22, [x21, #40] // we are booted via hardboot
+	ldr	x22, [x0]
+	str	x22, [x21, #48]
 not_hardboot_entry:
 	mov	x21, x0				// x21=FDT
 	bl	el2_setup			// Drop to EL1, w20=cpu_boot_mode
@@ -270,13 +272,6 @@ not_hardboot_entry:
 	bl	__vet_fdt
 	bl	__create_page_tables		// x25=TTBR0, x26=TTBR1
 
-
-	ldr	x3, =KEXEC_HB_PAGE_ADDR
-	ldr	x2, [x3, #40]
-	cbz	x2, before_mmu_not_hardboot
-	ldr	x2, =(0xadeadd0d)
-	str	x2, [x3, #0]
-before_mmu_not_hardboot:
 	/*
 	 * The following calls CPU specific code in a position independent
 	 * manner. See arch/arm64/mm/proc.S for details. x23 = base of
