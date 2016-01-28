@@ -21,13 +21,20 @@
 #include <linux/leds.h>
 #include <linux/qpnp/pwm.h>
 #include <linux/err.h>
-
+#include <linux/display_state.h>
 #include "mdss_dsi.h"
 
 #define DT_CMD_HDR 6
 #define MIN_REFRESH_RATE 30
 
 DEFINE_LED_TRIGGER(bl_led_trigger);
+
+bool display_on = true;
+
+bool is_display_on()
+{
+	return display_on;
+}
 
 void mdss_dsi_panel_pwm_cfg(struct mdss_dsi_ctrl_pdata *ctrl)
 {
@@ -701,6 +708,8 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	/* Ensure low persistence is disabled */
 	mdss_dsi_panel_apply_display_setting(pdata, 0);
 
+	display_on = true;
+
 	pinfo = &pdata->panel_info;
 	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
@@ -753,6 +762,8 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 
 	if (ctrl->off_cmds.cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds);
+
+	display_on = false;
 
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_BLANK;
