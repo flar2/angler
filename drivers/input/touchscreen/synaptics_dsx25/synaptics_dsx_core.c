@@ -163,7 +163,6 @@ static ssize_t synaptics_rmi4_virtual_key_map_show(struct kobject *kobj,
 
 #ifdef CONFIG_WAKE_GESTURES
 struct synaptics_rmi4_data *gl_rmi4_data;
-static struct wake_lock syn_wakelock;
 
 void set_internal_dt(bool input)
 {
@@ -1419,12 +1418,6 @@ static irqreturn_t synaptics_rmi4_irq(int irq, void *data)
 
 	if (gpio_get_value(bdata->irq_gpio) != bdata->irq_on_state)
 		goto exit;
-
-#ifdef CONFIG_WAKE_GESTURES
-	if (rmi4_data->suspend && (s2w_switch || camera_switch)) {
-		wake_lock_timeout(&syn_wakelock, HZ/4);
-	}
-#endif
 
 	synaptics_rmi4_sensor_report(rmi4_data, true);
 
@@ -3642,7 +3635,6 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 #endif
 
 #ifdef CONFIG_WAKE_GESTURES
-	wake_lock_init(&syn_wakelock, WAKE_LOCK_SUSPEND, "syn_wakelock");
 	gl_rmi4_data = rmi4_data;
 #endif
 
