@@ -37,7 +37,7 @@
 /* Tuneables */
 #define WG_DEBUG		0
 #define WG_DEFAULT		0
-#define S2W_DEFAULT		0
+#define S2W_DEFAULT		4
 #define S2S_DEFAULT		0
 #define WG_PWRKEY_DUR           60
 
@@ -118,7 +118,6 @@ static void report_gesture(int gest)
 
 	if (pwrtrigger_time[0] - pwrtrigger_time[1] < TRIGGER_TIMEOUT)
 		return;
-
 	wake_lock_timeout(&dt2w_wakelock, HZ/2);
 	input_report_rel(gesture_dev, WAKE_GESTURE, gest);
 	input_sync(gesture_dev);
