@@ -1821,6 +1821,12 @@ dhd_prot_ringstatus_process(dhd_pub_t *dhd, void * buf, uint16 msglen)
 		ring_status->cmn_hdr.request_id, ring_status->compl_hdr.status,
 		ring_status->compl_hdr.flow_ring_id, ring_status->write_idx));
 	/* How do we track this to pair it with ??? */
+	if (ring_status->compl_hdr.status == BCMPCIE_BADOPTION) {
+		DHD_ERROR(("%s: send HANG to recover.", __FUNCTION__));
+		dhd->bus->islinkdown = TRUE;
+		dhd->busstate = DHD_BUS_DOWN;
+		dhd_os_check_hang(dhd, 0, -ETIMEDOUT);
+	}
 	return;
 }
 
@@ -1882,12 +1888,14 @@ dhd_prot_txstatus_process(dhd_pub_t *dhd, void * buf, uint16 msglen)
 	unsigned long flags;
 	uint32 pktid;
 	void *pkt;
+	bool pkt_fate;
 
 	/* locks required to protect circular buffer accesses */
 	DHD_GENERAL_LOCK(dhd, flags);
 
 	txstatus = (host_txbuf_cmpl_t *)buf;
 	pktid = ltoh32(txstatus->cmn_hdr.request_id);
+	pkt_fate = TRUE;
 
 	DHD_INFO(("txstatus for pktid 0x%04x\n", pktid));
 	if (prot->active_tx_count)
@@ -1898,8 +1906,25 @@ dhd_prot_txstatus_process(dhd_pub_t *dhd, void * buf, uint16 msglen)
 	ASSERT(pktid != 0);
 	pkt = dhd_prot_packet_get(dhd, pktid, BUFF_TYPE_DATA_TX);
 	if (pkt) {
+#ifdef DBG_PKT_MON
+	/*
+	 * XXX: WAR: Because of the overloading by DMA marker field,
+	 * tx_status in TX completion message cannot be used. As a WAR,
+	 * send d11 tx_status through unused status field of PCIe
+	 * completion header.
+	 */
+	if (dhd->d11_tx_status) {
+		uint16 tx_status;
+
+		tx_status = ltoh16(txstatus->compl_hdr.status);
+		pkt_fate = (tx_status == WLFC_CTL_PKTFLAG_DISCARD) ? TRUE : FALSE;
+
+		DHD_DBG_PKT_MON_TX_STATUS(dhd, pkt, pktid, tx_status);
+	}
+#endif /* DBG_PKT_MON */
+
 #if defined(BCMPCIE)
-		dhd_txcomplete(dhd, pkt, true);
+		dhd_txcomplete(dhd, pkt, pkt_fate);
 #endif
 
 #if DHD_DBG_SHOW_METADATA
@@ -2132,6 +2157,12 @@ dhd_prot_txdata(dhd_pub_t *dhd, void *PKTBUF, uint8 ifidx)
 			pktlen, BUFF_TYPE_NO_CHECK);
 		goto err_no_res_pktfree;
 	}
+
+#ifdef DBG_PKT_MON
+	/* TODO: XXX: re-look into dropped packets */
+	DHD_DBG_PKT_MON_TX(dhd, PKTBUF, pktid);
+#endif /* DBG_PKT_MON */
+
 	/* test if dhcp pkt */
 	dhcp_pkt = pkt_is_dhcp(dhd->osh, PKTBUF);
 	txdesc->flag2 = (txdesc->flag2 & ~(BCMPCIE_PKT_FLAGS2_FORCELOWRATE_MASK <<

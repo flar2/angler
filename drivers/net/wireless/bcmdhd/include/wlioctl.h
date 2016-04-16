@@ -289,7 +289,7 @@ typedef struct wl_bss_info {
 	/* variable length Information Elements */
 } wl_bss_info_t;
 
-#define	WL_GSCAN_BSS_INFO_VERSION	1	/* current version of wl_gscan_bss_info struct */
+#define	WL_GSCAN_BSS_INFO_VERSION	2	/* current version of wl_gscan_bss_info struct */
 #define WL_GSCAN_INFO_FIXED_FIELD_SIZE   (sizeof(wl_gscan_bss_info_t) - sizeof(wl_bss_info_t))
 
 typedef struct wl_gscan_bss_info {
@@ -521,6 +521,7 @@ typedef struct wl_escan_result {
 typedef struct wl_gscan_result {
 	uint32 buflen;
 	uint32 version;
+	uint32 scan_ch_bucket;
 	wl_gscan_bss_info_t bss_info[1];
 } wl_gscan_result_t;
 
@@ -2584,7 +2585,6 @@ enum {
 #define REPORT_SEPERATELY_MASK	0x0800
 
 #define PFN_VERSION			2
-#define PFN_SCANRESULT_VERSION		1
 #define MAX_PFN_LIST_COUNT		16
 
 #define PFN_COMPLETE			1
@@ -2610,7 +2610,10 @@ typedef struct wl_pfn_subnet_info {
 	struct ether_addr BSSID;
 	uint8	channel; /* channel number only */
 	uint8	SSID_len;
-	uint8	SSID[32];
+	union {
+		uint8	SSID[32];
+		uint16 index;
+	} u;
 } wl_pfn_subnet_info_t;
 
 typedef struct wl_pfn_net_info {
@@ -2618,6 +2621,9 @@ typedef struct wl_pfn_net_info {
 	int16	RSSI; /* receive signal strength (in dBm) */
 	uint16	timestamp; /* age in seconds */
 } wl_pfn_net_info_t;
+
+#define PFN_LBEST_SCAN_RESULT_VERSION   2
+#define MAX_CHBKT_PER_RESULT            4
 
 typedef struct wl_pfn_lnet_info {
 	wl_pfn_subnet_info_t pfnsubnet; /* BSSID + channel + SSID len + SSID */
@@ -2630,8 +2636,9 @@ typedef struct wl_pfn_lnet_info {
 
 typedef struct wl_pfn_lscanresults {
 	uint32 version;
-	uint32 status;
-	uint32 count;
+	uint16 status;
+	uint16 count;
+	uint32 scan_ch_buckets[MAX_CHBKT_PER_RESULT];
 	wl_pfn_lnet_info_t netinfo[1];
 } wl_pfn_lscanresults_t;
 
@@ -2640,6 +2647,7 @@ typedef struct wl_pfn_scanresults {
 	uint32 version;
 	uint32 status;
 	uint32 count;
+	uint32 scan_ch_bucket;
 	wl_pfn_net_info_t netinfo[1];
 } wl_pfn_scanresults_t;
 
@@ -2714,6 +2722,25 @@ typedef struct wl_pfn_cfg {
 	uint32	flags;
 } wl_pfn_cfg_t;
 
+#define WL_PFN_SSID_CFG_VERSION       1
+#define WL_PFN_SSID_CFG_CLEAR          0x1
+
+typedef struct wl_pfn_ssid_params {
+	int8 min5G_rssi;           /* minimum 5GHz RSSI for a BSSID to be considered      */
+	int8 min2G_rssi;           /* minimum 2.4GHz RSSI for a BSSID to be considered   */
+	int16 init_score_max;     /* The maximum score that a network can have before bonuses  */
+	int16 cur_bssid_bonus;    /* Add to current bssid                                      */
+	int16 same_ssid_bonus;    /* score bonus for all networks with the same network flag   */
+	int16 secure_bonus;       /* score bonus for networks that are not open		     */
+	int16 band_5g_bonus;
+} wl_pfn_ssid_params_t;
+
+typedef struct wl_pfn_ssid_cfg {
+	uint16 version;
+	uint16 flags;
+	wl_pfn_ssid_params_t params;
+} wl_pfn_ssid_cfg_t;
+
 #define CH_BUCKET_REPORT_REGULAR            0
 #define CH_BUCKET_REPORT_FULL_RESULT        2
 #define CH_BUCKET_GSCAN                     4
@@ -2759,8 +2786,7 @@ typedef struct wl_pfn_gscan_cfg {
 
 #define WL_PFN_CFG_FLAGS_PROHIBITED	0x00000001	/* Accept and use prohibited channels */
 #define WL_PFN_CFG_FLAGS_RESERVED	0xfffffffe	/* Remaining reserved for future use */
-#define WL_PFN_SSID_A_BAND_TRIG   0x20
-#define WL_PFN_SSID_BG_BAND_TRIG   0x40
+
 typedef struct wl_pfn {
 	wlc_ssid_t		ssid;			/* ssid name and its length */
 	int32			flags;			/* bit2: hidden */
@@ -3136,15 +3162,18 @@ typedef enum wl_pkt_filter_type {
 	WL_PKT_FILTER_TYPE_MAGIC_PATTERN_MATCH=1, /* Magic packet match */
 	WL_PKT_FILTER_TYPE_PATTERN_LIST_MATCH=2, /* A pattern list (match all to match filter) */
 	WL_PKT_FILTER_TYPE_ENCRYPTED_PATTERN_MATCH=3, /* SECURE WOWL magic / net pattern match */
+	WL_PKT_FILTER_TYPE_APF_MATCH=4, /* Android packet filter match */
 } wl_pkt_filter_type_t;
 
 #define WL_PKT_FILTER_TYPE wl_pkt_filter_type_t
 
 /* String mapping for types that may be used by applications or debug */
 #define WL_PKT_FILTER_TYPE_NAMES \
-	{ "PATTERN", WL_PKT_FILTER_TYPE_PATTERN_MATCH },       \
+	{ "PATTERN", WL_PKT_FILTER_TYPE_PATTERN_MATCH }, \
 	{ "MAGIC",   WL_PKT_FILTER_TYPE_MAGIC_PATTERN_MATCH }, \
-	{ "PATLIST", WL_PKT_FILTER_TYPE_PATTERN_LIST_MATCH }
+	{ "PATLIST", WL_PKT_FILTER_TYPE_PATTERN_LIST_MATCH }, \
+	{ "SECURE WOWL", WL_PKT_FILTER_TYPE_ENCRYPTED_PATTERN_MATCH }, \
+	{ "APF", WL_PKT_FILTER_TYPE_APF_MATCH }
 
 /* Secured WOWL packet was encrypted, need decrypted before check filter match */
 typedef struct wl_pkt_decrypter {
@@ -3184,6 +3213,13 @@ typedef struct wl_pkt_filter_pattern_list {
 	wl_pkt_filter_pattern_listel_t patterns[1]; /* Variable number of list elements */
 } wl_pkt_filter_pattern_list_t;
 
+typedef struct wl_apf_program {
+	uint16 version;
+	uint16 instr_len;	/* number of instruction blocks */
+	uint32 inst_ts;		/* program installation timestamp */
+	uint8 instrs[1];	/* variable length instructions */
+} wl_apf_program_t;
+
 /* IOVAR "pkt_filter_add" parameter. Used to install packet filters. */
 typedef struct wl_pkt_filter {
 	uint32	id;		/* Unique filter id, specified by app. */
@@ -3192,6 +3228,7 @@ typedef struct wl_pkt_filter {
 	union {			/* Filter definitions */
 		wl_pkt_filter_pattern_t pattern;	/* Pattern matching filter */
 		wl_pkt_filter_pattern_list_t patlist; /* List of patterns to match */
+		wl_apf_program_t apf_program; /* apf program */
 	} u;
 } wl_pkt_filter_t;
 
@@ -3206,6 +3243,13 @@ typedef struct wl_tcp_keep_set {
 #define WL_PKT_FILTER_PATTERN_LIST_FIXED_LEN OFFSETOF(wl_pkt_filter_pattern_list_t, patterns)
 #define WL_PKT_FILTER_PATTERN_LISTEL_FIXED_LEN	\
 			OFFSETOF(wl_pkt_filter_pattern_listel_t, mask_and_data)
+
+#define WL_APF_INTERNAL_VERSION 1
+#define WL_APF_PROGRAM_FIXED_LEN OFFSETOF(wl_apf_program_t, instrs)
+#define WL_APF_PROGRAM_LEN(apf_program) \
+	(apf_program->instr_len * sizeof(apf_program->instrs[0]))
+#define WL_APF_PROGRAM_TOTAL_LEN(apf_program) \
+	(WL_APF_PROGRAM_FIXED_LEN + WL_APF_PROGRAM_LEN(apf_program))
 
 /* IOVAR "pkt_filter_enable" parameter. */
 typedef struct wl_pkt_filter_enable {
