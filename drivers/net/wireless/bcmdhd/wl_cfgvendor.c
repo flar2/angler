@@ -1690,22 +1690,50 @@ exit:
 }
 
 static int
-wl_cfgvendor_rtt_get_avail_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
+get_responder_info(struct bcm_cfg80211 *cfg,
+	struct wifi_rtt_responder *responder_info)
+{
+	int err = 0;
+	rtt_capabilities_t capability;
+
+	err = dhd_dev_rtt_capability(bcmcfg_to_prmry_ndev(cfg), &capability);
+	if (unlikely(err)) {
+		WL_ERR(("Could not get responder capability:%d \n", err));
+		return err;
+	}
+	if (capability.preamble_support & RTT_PREAMBLE_VHT) {
+		responder_info->preamble |= RTT_PREAMBLE_VHT;
+	}
+	if (capability.preamble_support & RTT_PREAMBLE_HT) {
+		responder_info->preamble |= RTT_PREAMBLE_HT;
+	}
+	err = dhd_dev_rtt_avail_channel(bcmcfg_to_prmry_ndev(cfg), &(responder_info->channel));
+	if (unlikely(err)) {
+		WL_ERR(("Could not get available channel:%d \n", err));
+		return err;
+	}
+	return err;
+}
+
+static int
+wl_cfgvendor_rtt_get_responder_info(struct wiphy *wiphy, struct wireless_dev *wdev,
 	const void *data, int len)
 {
 	int err = 0;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
-	wifi_channel_info channel_info;
+	wifi_rtt_responder_t responder_info;
 
 	WL_DBG(("Recv -get_avail_ch command \n"));
 
-	err = dhd_dev_rtt_avail_channel(bcmcfg_to_prmry_ndev(cfg), &channel_info);
+	memset(&responder_info, 0, sizeof(responder_info));
+	err = get_responder_info(cfg, &responder_info);
 	if (unlikely(err)) {
-		WL_ERR(("Vendor cmd -get_avail_ch failed ret:%d \n", err));
+		WL_ERR(("Failed to get responder info:%d \n", err));
 		return err;
 	}
+
 	err =  wl_cfgvendor_send_cmd_reply(wiphy, bcmcfg_to_prmry_ndev(cfg),
-	        &channel_info, sizeof(channel_info));
+	        &responder_info, sizeof(responder_info));
 
 	if (unlikely(err)) {
 		WL_ERR(("Vendor cmd reply for -get_avail_ch failed ret:%d \n", err));
@@ -1719,22 +1747,36 @@ wl_cfgvendor_rtt_set_responder(struct wiphy *wiphy, struct wireless_dev *wdev,
 {
 	int err = 0;
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
-	wifi_channel_info channel_info;
+	wifi_rtt_responder_t responder_info;
 
 	WL_DBG(("Recv rtt -enable_resp cmd.\n"));
 
-	err = dhd_dev_rtt_enable_responder(bcmcfg_to_prmry_ndev(cfg), &channel_info);
+	memset(&responder_info, 0, sizeof(responder_info));
+	err = dhd_dev_rtt_enable_responder(bcmcfg_to_prmry_ndev(cfg), &responder_info.channel);
 	if (unlikely(err)) {
-		WL_ERR(("Vendor cmd -enable_resp failed ret:%d \n", err));
+		WL_ERR(("Could not enable responder ret:%d \n", err));
+		/* Continue further to get the current responder info.
+		 * Responder info comprises of current channel and preamble supported.
+		 * Setting responder failed but we can still send current reponder info.
+		 * Userspace need this information.
+		 */
 	}
+
+	err = get_responder_info(cfg, &responder_info);
+	if (unlikely(err)) {
+		WL_ERR(("Failed to get responder info:%d \n", err));
+		return err;
+	}
+
 	err =  wl_cfgvendor_send_cmd_reply(wiphy, bcmcfg_to_prmry_ndev(cfg),
-	        &channel_info, sizeof(channel_info));
+	        &responder_info, sizeof(responder_info));
 
 	if (unlikely(err)) {
 		WL_ERR(("Vendor cmd reply for -enable_resp failed ret:%d \n", err));
 	}
 	return err;
 }
+
 
 static int
 wl_cfgvendor_rtt_cancel_responder(struct wiphy *wiphy, struct wireless_dev *wdev,
@@ -2572,6 +2614,39 @@ exit:
 }
 #endif /* PKT_FILTER_SUPPORT && APF */
 
+#ifdef NDO_CONFIG_SUPPORT
+static int wl_cfgvendor_configure_nd_offload(struct wiphy *wiphy,
+	struct wireless_dev *wdev, const void  *data, int len)
+{
+	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	const struct nlattr *iter;
+	int ret = BCME_OK, rem, type;
+	u8 enable;
+
+	nla_for_each_attr(iter, data, len, rem) {
+		type = nla_type(iter);
+		switch (type) {
+			case ANDR_WIFI_ATTRIBUTE_ND_OFFLOAD_VALUE:
+				enable = nla_get_u8(iter);
+				break;
+			default:
+				WL_ERR(("Unknown type: %d\n", type));
+				ret = BCME_BADARG;
+				goto exit;
+		}
+	}
+
+	ret = dhd_dev_ndo_cfg(bcmcfg_to_prmry_ndev(cfg), enable);
+	if (ret < 0) {
+		WL_ERR(("dhd_dev_ndo_cfg() failed: %d\n", ret));
+	}
+
+exit:
+	return ret;
+}
+#endif /* NDO_CONFIG_SUPPORT */
+
+
 static const struct wiphy_vendor_command wl_vendor_cmds [] = {
 	{
 		{
@@ -2686,7 +2761,7 @@ static const struct wiphy_vendor_command wl_vendor_cmds [] = {
 			.subcmd = RTT_SUBCMD_GETAVAILCHANNEL
 		},
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = wl_cfgvendor_rtt_get_avail_channel
+		.doit = wl_cfgvendor_rtt_get_responder_info
 	},
 	{
 		{
@@ -2945,6 +3020,16 @@ static const struct wiphy_vendor_command wl_vendor_cmds [] = {
 		.doit = wl_cfgvendor_apf_set_filter
 	},
 #endif /* PKT_FILTER_SUPPORT && APF */
+#ifdef NDO_CONFIG_SUPPORT
+	{
+		{
+			.vendor_id = OUI_GOOGLE,
+			.subcmd = WIFI_SUBCMD_CONFIG_ND_OFFLOAD,
+		},
+		.flags = WIPHY_VENDOR_CMD_NEED_WDEV | WIPHY_VENDOR_CMD_NEED_NETDEV,
+		.doit = wl_cfgvendor_configure_nd_offload
+	},
+#endif /* NDO_CONFIG_SUPPORT */
 	{
 		{
 			.vendor_id = OUI_GOOGLE,

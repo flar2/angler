@@ -719,6 +719,7 @@ static enum power_supply_property smbchg_battery_properties[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_MAX,
 	POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
+	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_SAFETY_TIMER_ENABLE,
@@ -954,6 +955,21 @@ static int get_prop_batt_current_now(struct smbchg_chip *chip)
 	if (rc) {
 		pr_smb(PR_STATUS, "Couldn't get current rc = %d\n", rc);
 		ua = DEFAULT_BATT_CURRENT_NOW;
+	}
+	return ua;
+}
+#define DEFAULT_CHARGE_COUNTER		0
+static int get_prop_batt_charge_counter(struct smbchg_chip *chip)
+{
+	int ua, rc;
+
+	/* State of charge derived from just coulomb counting.
+	   Note: This register is reset during CV charging and not reliable for
+	   customers to measure for coulomb counting */
+	rc = get_property_from_fg(chip, POWER_SUPPLY_PROP_CHARGE_NOW_RAW, &ua);
+	if (rc) {
+		pr_smb(PR_STATUS, "Couldn't get charge counter rc = %d\n", rc);
+		ua = DEFAULT_CHARGE_COUNTER;
 	}
 	return ua;
 }
@@ -3161,6 +3177,9 @@ static int smbchg_battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		val->intval = get_prop_batt_current_now(chip) * (-1);
 		break;
+	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
+		val->intval = get_prop_batt_charge_counter(chip);
+		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		val->intval = get_prop_batt_voltage_now(chip);
 		break;
@@ -4672,7 +4691,6 @@ static void increment_aicl_count(struct smbchg_chip *chip)
 			if (rc)
 				pr_err("Couldn't set health on usb psy rc:%d\n",
 					rc);
-			schedule_work(&chip->usb_set_online_work);
 		}
 	}
 }
@@ -5178,7 +5196,6 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 			rc = smbchg_set_usb_current_max(chip, CURRENT_150_MA);
 			if (rc)
 				pr_err("could not set current 150mA : %d", rc);
-			schedule_work(&chip->usb_set_online_work);
 		}
 		pr_smb(PR_MISC, "setting usb psy health UNSPEC_FAILURE\n");
 		rc = power_supply_set_health_state(chip->usb_psy,

@@ -2068,7 +2068,8 @@ static void wl_scan_prep(struct bcm_cfg80211 *cfg, struct wl_scan_params *params
 		ptr = (char*)params + offset;
 		for (i = 0; i < n_ssids; i++) {
 			memset(&ssid, 0, sizeof(wlc_ssid_t));
-			ssid.SSID_len = MIN((int)request->ssids[i].ssid_len, DOT11_MAX_SSID_LEN);
+			ssid.SSID_len = MIN(request->ssids[i].ssid_len,
+					    DOT11_MAX_SSID_LEN);
 			memcpy(ssid.SSID, request->ssids[i].ssid, ssid.SSID_len);
 			if (!ssid.SSID_len)
 				WL_SCAN(("%d: Broadcast scan\n", i));
@@ -7306,13 +7307,15 @@ wl_cfg80211_add_set_beacon(struct wiphy *wiphy, struct net_device *dev,
 		if (dev_role == NL80211_IFTYPE_AP) {
 			/* Store the hostapd SSID */
 			memset(&cfg->hostapd_ssid.SSID[0], 0x00, DOT11_MAX_SSID_LEN);
-			cfg->hostapd_ssid.SSID_len = MIN((int)ssid_ie->len, DOT11_MAX_SSID_LEN);
+			cfg->hostapd_ssid.SSID_len = MIN(ssid_ie->len,
+							 DOT11_MAX_SSID_LEN);
 			memcpy(&cfg->hostapd_ssid.SSID[0], ssid_ie->data,
 				cfg->hostapd_ssid.SSID_len);
 		} else {
 				/* P2P GO */
 			memset(&cfg->p2p->ssid.SSID[0], 0x00, DOT11_MAX_SSID_LEN);
-			cfg->p2p->ssid.SSID_len = MIN((int)ssid_ie->len, DOT11_MAX_SSID_LEN);
+			cfg->p2p->ssid.SSID_len = MIN(ssid_ie->len,
+						      DOT11_MAX_SSID_LEN);
 			memcpy(cfg->p2p->ssid.SSID, ssid_ie->data,
 				cfg->p2p->ssid.SSID_len);
 		}
@@ -7433,8 +7436,13 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 	int pno_freq_expo_max = PNO_FREQ_EXPO_MAX;
 	wlc_ssid_ext_t ssids_local[MAX_PFN_LIST_COUNT];
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
 	struct cfg80211_ssid *ssid = NULL;
 	struct cfg80211_ssid *hidden_ssid_list = NULL;
+	log_conn_event_t *event_data = NULL;
+	tlv_log *tlv_data = NULL;
+	u32 alloc_len;
+	u32 payload_len;
 	int ssid_cnt = 0;
 	int i;
 	int ret = 0;
@@ -7457,6 +7465,17 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 
 	if (request->n_ssids > 0)
 		hidden_ssid_list = request->ssids;
+
+	if (DBG_RING_ACTIVE(dhdp, DHD_EVENT_RING_ID)) {
+		alloc_len = sizeof(log_conn_event_t) + sizeof(tlv_log) +
+			DOT11_MAX_SSID_LEN;
+		event_data = MALLOC(dhdp->osh, alloc_len);
+		if (!event_data) {
+			WL_ERR(("%s: failed to allocate log_conn_event_t with "
+				"length(%d)\n", __func__, alloc_len));
+			return -ENOMEM;
+		}
+	}
 
 	for (i = 0; i < request->n_match_sets && ssid_cnt < MAX_PFN_LIST_COUNT; i++) {
 		ssid = &request->match_sets[i].ssid;
@@ -7485,29 +7504,66 @@ wl_cfg80211_sched_scan_start(struct wiphy *wiphy,
 		if ((ret = dhd_dev_pno_set_for_ssid(dev, ssids_local, ssid_cnt, pno_time,
 		        pno_repeat, pno_freq_expo_max, NULL, 0)) < 0) {
 			WL_ERR(("PNO setup failed!! ret=%d \n", ret));
-			return -EINVAL;
+			ret = -EINVAL;
+			goto exit;
 		}
+
+		if (DBG_RING_ACTIVE(dhdp, DHD_EVENT_RING_ID)) {
+			/*
+			 * XXX: purposefully logging here to make sure that
+			 * firmware configuration was successful
+			 */
+			for (i = 0; i < ssid_cnt; i++) {
+				payload_len = sizeof(log_conn_event_t);
+				memset(event_data, 0, alloc_len);
+				event_data->event = WIFI_EVENT_DRIVER_PNO_ADD;
+				tlv_data = event_data->tlvs;
+
+				/* ssid */
+				tlv_data->tag = WIFI_TAG_SSID;
+				tlv_data->len = ssids_local[i].SSID_len;
+				memcpy(tlv_data->value, ssids_local[i].SSID,
+					ssids_local[i].SSID_len);
+				payload_len += TLV_LOG_SIZE(tlv_data);
+
+				dhd_os_push_push_ring_data(dhdp, DHD_EVENT_RING_ID,
+					event_data, payload_len);
+			}
+		}
+
 		spin_lock_irqsave(&cfg->cfgdrv_lock, flags);
 		cfg->sched_scan_req = request;
 		spin_unlock_irqrestore(&cfg->cfgdrv_lock, flags);
 	} else {
-		return -EINVAL;
+		ret = -EINVAL;
 	}
 
-	return 0;
+exit:
+	if (event_data) {
+		MFREE(dhdp->osh, event_data, alloc_len);
+	}
+	return ret;
 }
 
 static int
 wl_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev)
 {
 	struct bcm_cfg80211 *cfg = wiphy_priv(wiphy);
+	dhd_pub_t *dhdp = (dhd_pub_t *)(cfg->pub);
 	unsigned long flags;
 
 	WL_DBG(("Enter \n"));
 	WL_ERR((">>> SCHED SCAN STOP\n"));
 
-	if (dhd_dev_pno_stop_for_ssid(dev) < 0)
+	if (dhd_dev_pno_stop_for_ssid(dev) < 0) {
 		WL_ERR(("PNO Stop for SSID failed"));
+	} else {
+		/*
+		 * XXX: purposefully logging here to make sure that
+		 * firmware configuration was successful
+		 */
+		DBG_EVENT_LOG(dhdp, WIFI_EVENT_DRIVER_PNO_REMOVE);
+	}
 
 	if (cfg->scan_request && cfg->sched_scan_running) {
 		WL_PNO((">>> Sched scan running. Aborting it..\n"));
@@ -12025,7 +12081,8 @@ wl_update_prof(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		ssid = (wlc_ssid_t *) data;
 		memset(profile->ssid.SSID, 0,
 			sizeof(profile->ssid.SSID));
-		profile->ssid.SSID_len = MIN(ssid->SSID_len, (uint32)DOT11_MAX_SSID_LEN);
+		profile->ssid.SSID_len = MIN(ssid->SSID_len,
+					     DOT11_MAX_SSID_LEN);
 		memcpy(profile->ssid.SSID, ssid->SSID, profile->ssid.SSID_len);
 		break;
 	case WL_PROF_BSSID:
@@ -12109,7 +12166,7 @@ static __used s32 wl_add_ie(struct bcm_cfg80211 *cfg, u8 t, u8 l, u8 *v)
 static void wl_update_hidden_ap_ie(struct wl_bss_info *bi, u8 *ie_stream, u32 *ie_size, bool roam)
 {
 	u8 *ssidie;
-	int32 ssid_len = MIN((int)bi->SSID_len, DOT11_MAX_SSID_LEN);
+	int32 ssid_len = MIN(bi->SSID_len, DOT11_MAX_SSID_LEN);
 	int32 remaining_ie_buf_len, available_buffer_len;
 	ssidie = (u8 *)cfg80211_find_ie(WLAN_EID_SSID, ie_stream, *ie_size);
 	/* ERROR out if
