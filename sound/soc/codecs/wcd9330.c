@@ -1005,6 +1005,9 @@ static int tomtom_set_compander(struct snd_kcontrol *kcontrol,
 		    kcontrol->private_value)->shift;
 	int value = ucontrol->value.integer.value[0];
 
+	if (comp == COMPANDER_1)
+		value = 0;
+
 	pr_debug("%s: Compander %d enable current %d, new %d\n",
 		 __func__, comp, tomtom->comp_enabled[comp], value);
 	tomtom->comp_enabled[comp] = value;
@@ -1750,9 +1753,9 @@ static const struct snd_kcontrol_new tomtom_1_x_analog_gain_controls[] = {
 	SOC_ENUM_EXT("EAR PA Gain", tomtom_1_x_ear_pa_gain_enum,
 		tomtom_pa_gain_get, tomtom_pa_gain_put),
 
-	SOC_SINGLE_TLV("HPHL Volume", TOMTOM_A_RX_HPH_L_GAIN, 0, 20, 1,
+	SOC_SINGLE_TLV("HPH_L Volume", TOMTOM_A_RX_HPH_L_GAIN, 0, 20, 1,
 		line_gain),
-	SOC_SINGLE_TLV("HPHR Volume", TOMTOM_A_RX_HPH_R_GAIN, 0, 20, 1,
+	SOC_SINGLE_TLV("HPH_R Volume", TOMTOM_A_RX_HPH_R_GAIN, 0, 20, 1,
 		line_gain),
 
 	SOC_SINGLE_TLV("LINEOUT1 Volume", TOMTOM_A_RX_LINE_1_GAIN, 0, 20, 1,
