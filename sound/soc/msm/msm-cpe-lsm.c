@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014, Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, 2016 Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -579,6 +579,7 @@ static int msm_cpe_lsm_open(struct snd_pcm_substream *substream)
 	}
 
 	init_waitqueue_head(&lsm_d->event_wait);
+	init_waitqueue_head(&lsm_d->lsm_session->lab.period_wait);
 	atomic_set(&lsm_d->event_avail, 0);
 	atomic_set(&lsm_d->event_stop, 0);
 	runtime->private_data = lsm_d;
@@ -690,8 +691,7 @@ static int msm_cpe_lsm_get_conf_levels(
 		goto done;
 	}
 
-	session->conf_levels = kzalloc(session->num_confidence_levels,
-				       GFP_KERNEL);
+	session->conf_levels = vzalloc(session->num_confidence_levels);
 	if (!session->conf_levels) {
 		pr_err("%s: No memory for confidence levels %u\n",
 			__func__, session->num_confidence_levels);
@@ -704,7 +704,7 @@ static int msm_cpe_lsm_get_conf_levels(
 			   session->num_confidence_levels)) {
 		pr_err("%s: copy_from_user failed for confidence levels %u\n",
 			__func__, session->num_confidence_levels);
-		kfree(session->conf_levels);
+		vfree(session->conf_levels);
 		session->conf_levels = NULL;
 		rc = -EFAULT;
 		goto done;
@@ -934,12 +934,12 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			break;
 		}
 
-		session->snd_model_data = kzalloc(snd_model.data_size,
-						  GFP_KERNEL);
+		session->snd_model_data = vzalloc(snd_model.data_size);
 		if (!session->snd_model_data) {
 			dev_err(rtd->dev, "%s: No memory for sound model\n",
 				__func__);
-			kfree(session->conf_levels);
+			vfree(session->conf_levels);
+			session->conf_levels = NULL;
 			return -ENOMEM;
 		}
 		session->snd_model_size = snd_model.data_size;
@@ -949,8 +949,10 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev,
 				"%s: copy_from_user failed for snd_model\n",
 				__func__);
-			kfree(session->conf_levels);
-			kfree(session->snd_model_data);
+			vfree(session->conf_levels);
+			session->conf_levels = NULL;
+			vfree(session->snd_model_data);
+			session->snd_model_data = NULL;
 			return -EFAULT;
 		}
 
@@ -960,8 +962,10 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev,
 				"%s: shared memory allocation failed, err = %d\n",
 			       __func__, rc);
-			kfree(session->snd_model_data);
-			kfree(session->conf_levels);
+			vfree(session->conf_levels);
+			session->conf_levels = NULL;
+			vfree(session->snd_model_data);
+			session->snd_model_data = NULL;
 			return rc;
 		}
 
@@ -973,8 +977,10 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 				"%s: snd_model_reg failed, err = %d\n",
 			       __func__, rc);
 			lsm_ops->lsm_shmem_dealloc(cpe->core_handle, session);
-			kfree(session->snd_model_data);
-			kfree(session->conf_levels);
+			vfree(session->conf_levels);
+			session->conf_levels = NULL;
+			vfree(session->snd_model_data);
+			session->snd_model_data = NULL;
 			return rc;
 		}
 
@@ -1020,10 +1026,10 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 			return rc;
 		}
 
-		kfree(session->snd_model_data);
-		kfree(session->conf_levels);
-		session->snd_model_data = NULL;
+		vfree(session->conf_levels);
 		session->conf_levels = NULL;
+		vfree(session->snd_model_data);
+		session->snd_model_data = NULL;
 
 		rc = lsm_ops->lsm_shmem_dealloc(cpe->core_handle, session);
 		if (rc != 0) {
@@ -1179,16 +1185,16 @@ static int msm_cpe_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 		rc = lsm_ops->lsm_set_data(cpe->core_handle, session,
 					   det_params.detect_mode,
 					   det_params.detect_failure);
+
+		vfree(session->conf_levels);
+		session->conf_levels = NULL;
+
 		if (rc) {
 			dev_err(rtd->dev,
 				"%s: lsm_set_data failed, err = %d\n",
 				__func__, rc);
 			return rc;
 		}
-
-		kfree(session->conf_levels);
-		session->conf_levels = NULL;
-
 		break;
 
 		case SNDRV_LSM_OUT_FORMAT_CFG: {

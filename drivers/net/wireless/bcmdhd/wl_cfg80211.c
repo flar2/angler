@@ -1424,7 +1424,7 @@ wl_cfg80211_add_virtual_iface(struct wiphy *wiphy,
 		return NULL;
 	}
 	if (wl_cfgp2p_check_enabled(cfg) && (wlif_type != -1)) {
-		ASSERT(cfg->p2p); /* ensure expectation of p2p initialization */
+		DHD_WARN(cfg->p2p,); /* ensure expectation of p2p initialization */
 
 #ifdef PROP_TXSTATUS_VSDB
 #if defined(BCMSDIO)
@@ -11494,9 +11494,9 @@ void wl_cfg80211_add_to_eventbuffer(struct wl_eventmsg_buf *ev, u16 event, bool 
 		ev->event[ev->num].set = set;
 		ev->num++;
 	} else {
-		WL_ERR(("evenbuffer doesn't support > %u events. Update"
+		WL_ERR(("event buffer doesn't support > %u events. Update"
 			" the define MAX_EVENT_BUF_NUM \n", MAX_EVENT_BUF_NUM));
-		ASSERT(0);
+		DHD_BUG(1);
 	}
 }
 
@@ -11635,6 +11635,13 @@ static int wl_construct_reginfo(struct bcm_cfg80211 *cfg, s32 bw_cap)
 	wl_reset_channel();
 
 	list = (wl_uint32_list_t *)(void *)pbuf;
+
+	if ((list) && (dtoh32(list->count) > htod32(WL_NUMCHANSPECS))) {
+		WL_ERR(("Invalid channel list : %d\n", dtoh32(list->count)));
+		kfree(pbuf);
+		return INVCHANSPEC;
+	}
+
 	band = array_size = 0;
 	for (i = 0; i < dtoh32(list->count); i++) {
 		index = 0;
