@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1567,6 +1567,11 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 	int mux = ucontrol->value.enumerated.item[0];
 	struct soc_enum *e = (struct soc_enum *)kcontrol->private_value;
 
+	if (mux >= e->max) {
+		pr_err("%s: Invalid mux value %d\n", __func__, mux);
+		return -EINVAL;
+	}
+
 	mutex_lock(&routing_lock);
 	switch (ucontrol->value.integer.value[0]) {
 	case 0:
@@ -1613,6 +1618,10 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 		msm_route_ec_ref_rx = 11;
 		ec_ref_port_id = AFE_PORT_ID_QUATERNARY_MI2S_RX;
 		break;
+	case 12:
+		msm_route_ec_ref_rx = 12;
+		ec_ref_port_id = AFE_PORT_ID_SECONDARY_PCM_RX;
+		break;
 	default:
 		msm_route_ec_ref_rx = 0; /* NONE */
 		pr_err("%s EC ref rx %ld not valid\n",
@@ -1631,10 +1640,10 @@ static int msm_routing_ec_ref_rx_put(struct snd_kcontrol *kcontrol,
 static const char *const ec_ref_rx[] = { "None", "SLIM_RX", "I2S_RX",
 	"PRI_MI2S_TX", "SEC_MI2S_TX",
 	"TERT_MI2S_TX", "QUAT_MI2S_TX", "SEC_I2S_RX", "PROXY_RX",
-	"SLIM_5_RX","TERT_MI2S_RX", "QUAT_MI2S_RX"};
+	"SLIM_5_RX","TERT_MI2S_RX", "QUAT_MI2S_RX", "SEC_AUX_PCM_RX"};
 
 static const struct soc_enum msm_route_ec_ref_rx_enum[] = {
-	SOC_ENUM_SINGLE_EXT(11, ec_ref_rx),
+	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(ec_ref_rx), ec_ref_rx),
 };
 
 static const struct snd_kcontrol_new ext_ec_ref_mux_ul1 =
@@ -1693,9 +1702,14 @@ static int msm_routing_ext_ec_put(struct snd_kcontrol *kcontrol,
 	int ret = 0;
 	bool state = false;
 
+	if (mux >= e->max) {
+		pr_err("%s: Invalid mux value %d\n", __func__, mux);
+		return -EINVAL;
+	}
+
 	pr_debug("%s: msm_route_ec_ref_rx = %d value = %ld\n",
-		 __func__, msm_route_ext_ec_ref,
-		 ucontrol->value.integer.value[0]);
+		__func__, msm_route_ext_ec_ref,
+		ucontrol->value.integer.value[0]);
 
 	mutex_lock(&routing_lock);
 	switch (ucontrol->value.integer.value[0]) {
