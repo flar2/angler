@@ -78,22 +78,6 @@
 
 #define XIN_HALT_TIMEOUT_US	0x4000
 
-struct kcal_lut_data {
-    int red;
-    int green;
-    int blue;
-    int minimum;
-    int enable;
-    int invert;
-    int sat;
-    int hue;
-    int val;
-    int cont;
-};
-
-void kcal_ext_apply_values(int red, int green, int blue);
-struct kcal_lut_data kcal_ext_show_values(void);
-
 enum mdss_mdp_perf_state_type {
 	PERF_SW_COMMIT_STATE = 0,
 	PERF_HW_MDP_STATE,
