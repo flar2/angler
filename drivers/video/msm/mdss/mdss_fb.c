@@ -794,8 +794,6 @@ static ssize_t mdss_set_rgb(struct device *dev,
 	if (b < 0 || b > 32768)
 		return -EINVAL;
 
-	msleep(20);
-
 	kcal_ext_apply_values(r, g, b);
 
 	return count;
