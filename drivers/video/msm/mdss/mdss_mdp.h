@@ -587,11 +587,10 @@ struct mdss_overlay_private {
 	bool kickoff_released;
 	u32 cursor_ndx[2];
 	bool dyn_mode_switch; /* Used in prepare, bw calc for new mode */
-	
+
 	struct kthread_worker worker;
 	struct kthread_work vsync_work;
 	struct task_struct *thread;
-
 };
 
 struct mdss_mdp_set_ot_params {
