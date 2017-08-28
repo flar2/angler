@@ -305,3 +305,7 @@ config PARTIALRESUME
 	  partial-resume handlers associated with them, and they all return
 	  true.
 
+config	BOEFFLA_WL_BLOCKER
+		bool "Boeffla generic wakelock blocker driver"
+		depends on PM
+		default N
